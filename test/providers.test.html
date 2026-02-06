@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head><title>Provider Test</title></head>
+<body>
+<pre id="output"></pre>
+<script>
+// Mock browser.storage.sync for testing outside extension context
+const browser = {
+  storage: {
+    sync: {
+      _data: {},
+      async get(keys) {
+        const result = {};
+        for (const k of keys) {
+          if (k in this._data) result[k] = this._data[k];
+        }
+        return result;
+      },
+      async set(obj) {
+        Object.assign(this._data, obj);
+      }
+    }
+  }
+};
+</script>
+<script src="../providers/providers.js"></script>
+<script>
+async function runTests() {
+  const out = document.getElementById("output");
+  function log(msg) { out.textContent += msg + "\n"; }
+
+  // Test 1: Default provider is chatgpt
+  let result = await getActiveProvider();
+  log("Test 1 - Default provider:");
+  log(JSON.stringify(result, null, 2));
+  log(result.provider.id === "chatgpt" ? "PASS" : "FAIL");
+
+  // Test 2: Switch to claude
+  await setActiveProvider("claude");
+  result = await getActiveProvider();
+  log("\nTest 2 - Claude provider:");
+  log(JSON.stringify(result, null, 2));
+  log(result.provider.id === "claude" ? "PASS" : "FAIL");
+
+  // Test 3: Custom provider with no URL returns error
+  await setActiveProvider("custom");
+  result = await getActiveProvider();
+  log("\nTest 3 - Custom with no URL:");
+  log(JSON.stringify(result, null, 2));
+  log(result.error !== null ? "PASS" : "FAIL");
+
+  // Test 4: Custom provider with valid URL
+  browser.storage.sync._data.customProvider = {
+    url: "http://localhost:8080",
+    inputSelector: "textarea",
+    submitSelector: "button"
+  };
+  result = await getActiveProvider();
+  log("\nTest 4 - Custom with URL:");
+  log(JSON.stringify(result, null, 2));
+  log(result.provider.url === "http://localhost:8080" ? "PASS" : "FAIL");
+
+  // Test 5: Provider overrides merge correctly
+  await setActiveProvider("chatgpt");
+  browser.storage.sync._data.providerOverrides = {
+    chatgpt: { inputSelector: "textarea.custom-selector" }
+  };
+  result = await getActiveProvider();
+  log("\nTest 5 - Overrides:");
+  log(JSON.stringify(result, null, 2));
+  log(result.provider.inputSelector === "textarea.custom-selector" ? "PASS" : "FAIL");
+}
+runTests();
+</script>
+</body>
+</html>
