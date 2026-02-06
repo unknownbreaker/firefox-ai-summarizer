@@ -1,12 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Summarizer Sidebar</title>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    #llm-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    #status {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: system-ui, sans-serif;
+      color: #666;
+      text-align: center;
+    }
+    #status.hidden { display: none; }
+    #llm-frame.hidden { display: none; }
+  </style>
 </head>
 <body>
-  <h1>AI Summarizer Sidebar</h1>
+  <div id="status">Loading LLM provider...</div>
+  <iframe id="llm-frame" class="hidden"></iframe>
+  <script src="../providers/providers.js"></script>
   <script src="sidebar.js"></script>
 </body>
 </html>
