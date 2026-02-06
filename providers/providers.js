@@ -23,6 +23,11 @@ const CUSTOM_PROVIDER_TEMPLATE = {
   submitSelector: ""
 };
 
+/**
+ * Load the active provider config from storage.
+ * Falls back to chatgpt if nothing is stored.
+ * Merges any user selector overrides on top of defaults.
+ */
 async function getActiveProvider() {
   const stored = await browser.storage.sync.get([
     "activeProviderId",
@@ -34,8 +39,8 @@ async function getActiveProvider() {
 
   if (providerId === "custom") {
     const custom = stored.customProvider || CUSTOM_PROVIDER_TEMPLATE;
-    if (!custom.url) {
-      return { provider: null, error: "Custom provider URL is not valid. Check your settings." };
+    if (!custom.url || !custom.inputSelector || !custom.submitSelector) {
+      return { provider: null, error: "Custom provider is incomplete. Please configure URL, input selector, and submit button selector in settings." };
     }
     return { provider: { ...CUSTOM_PROVIDER_TEMPLATE, ...custom }, error: null };
   }
@@ -52,6 +57,9 @@ async function getActiveProvider() {
   };
 }
 
+/**
+ * Save active provider choice to storage.
+ */
 async function setActiveProvider(providerId) {
   await browser.storage.sync.set({ activeProviderId: providerId });
 }
