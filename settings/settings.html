@@ -1,12 +1,124 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
   <title>AI Summarizer Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #1a1a1a;
+    }
+    h1 { font-size: 20px; margin-bottom: 24px; }
+    h2 { font-size: 16px; margin: 24px 0 12px; border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; }
+    label { display: block; font-size: 13px; margin-bottom: 4px; font-weight: 500; }
+    input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-bottom: 12px;
+      font-family: monospace;
+    }
+    textarea { height: 60px; resize: vertical; }
+    .radio-group { margin-bottom: 12px; }
+    .radio-group label { display: inline; font-weight: normal; margin-right: 16px; }
+    .custom-fields { margin-left: 20px; margin-bottom: 12px; }
+    .custom-fields.hidden { display: none; }
+    button {
+      padding: 8px 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+      margin-right: 8px;
+    }
+    button.primary { background: #0060df; color: white; border-color: #0060df; }
+    button.primary:hover { background: #003eaa; }
+    button.danger { color: #d70022; border-color: #d70022; }
+    .preset-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+    .preset-item .name { flex: 1; font-weight: 500; }
+    .preset-item .instruction { flex: 2; color: #666; font-size: 12px; }
+    .status { color: #058b00; font-size: 12px; margin-top: 8px; }
+    .status.hidden { display: none; }
+    .override-fields { margin-top: 8px; }
+    .override-fields.hidden { display: none; }
+    .toggle-overrides { font-size: 11px; color: #0060df; cursor: pointer; margin-bottom: 8px; display: inline-block; }
+    .checkbox-row { margin-bottom: 12px; }
+    .checkbox-row label { display: inline; font-weight: normal; }
+  </style>
 </head>
 <body>
   <h1>AI Summarizer Settings</h1>
+
+  <!-- Provider Settings -->
+  <h2>Provider</h2>
+  <div class="radio-group" id="provider-radios">
+    <label><input type="radio" name="provider" value="chatgpt"> ChatGPT</label>
+    <label><input type="radio" name="provider" value="claude"> Claude</label>
+    <label><input type="radio" name="provider" value="custom"> Custom</label>
+  </div>
+
+  <div class="custom-fields hidden" id="custom-fields">
+    <label for="custom-url">URL</label>
+    <input type="text" id="custom-url" placeholder="https://your-llm.example.com">
+    <label for="custom-input-selector">Chat Input CSS Selector</label>
+    <input type="text" id="custom-input-selector" placeholder="textarea">
+    <label for="custom-submit-selector">Submit Button CSS Selector</label>
+    <input type="text" id="custom-submit-selector" placeholder="button[type=submit]">
+    <button id="test-custom">Test Selectors</button>
+  </div>
+
+  <span class="toggle-overrides" id="toggle-overrides">Advanced: Override built-in selectors</span>
+  <div class="override-fields hidden" id="override-fields">
+    <label for="override-input">Input Selector Override</label>
+    <input type="text" id="override-input" placeholder="Leave blank to use default">
+    <label for="override-submit">Submit Selector Override</label>
+    <input type="text" id="override-submit" placeholder="Leave blank to use default">
+  </div>
+
+  <!-- Prompt Presets -->
+  <h2>Prompt Presets</h2>
+  <div id="preset-list"></div>
+  <h3 style="font-size:14px; margin: 16px 0 8px;">Add Custom Preset</h3>
+  <label for="new-preset-name">Name</label>
+  <input type="text" id="new-preset-name" placeholder="My Custom Style">
+  <label for="new-preset-instruction">Instruction</label>
+  <textarea id="new-preset-instruction" placeholder="Summarize in plain language for a 5th grader."></textarea>
+  <button class="primary" id="add-preset">Add Preset</button>
+
+  <!-- General Settings -->
+  <h2>General</h2>
+  <label for="injection-delay">Injection Delay (ms)</label>
+  <input type="number" id="injection-delay" value="500" min="0" max="5000" step="100">
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="auto-submit" checked>
+    <label for="auto-submit">Auto-submit prompt after injection</label>
+  </div>
+
+  <label for="char-limit">Selection Character Limit</label>
+  <input type="number" id="char-limit" value="10000" min="1000" max="100000" step="1000">
+
+  <br><br>
+  <button class="primary" id="save-settings">Save Settings</button>
+  <span class="status hidden" id="save-status">Settings saved.</span>
+
+  <script src="../providers/providers.js"></script>
+  <script src="../lib/prompt-builder.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>
