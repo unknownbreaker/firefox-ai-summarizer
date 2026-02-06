@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head><title>Prompt Builder Test</title></head>
+<body>
+<pre id="output"></pre>
+<script>
+const browser = {
+  storage: {
+    sync: {
+      _data: {},
+      async get(keys) {
+        const result = {};
+        for (const k of keys) {
+          if (k in this._data) result[k] = this._data[k];
+        }
+        return result;
+      },
+      async set(obj) { Object.assign(this._data, obj); }
+    }
+  }
+};
+</script>
+<script src="../lib/prompt-builder.js"></script>
+<script>
+async function runTests() {
+  const out = document.getElementById("output");
+  function log(msg) { out.textContent += msg + "\n"; }
+
+  // Test 1: buildPagePrompt
+  const pagePrompt = buildPagePrompt("https://example.com/article", "Provide a brief summary.");
+  log("Test 1 - Page prompt:");
+  log(pagePrompt);
+  log(pagePrompt.includes("https://example.com/article") ? "PASS" : "FAIL");
+  log(pagePrompt.includes("as if I had pasted") ? "PASS" : "FAIL");
+
+  // Test 2: buildTabsPrompt
+  const tabsPrompt = buildTabsPrompt([
+    { title: "Article One", url: "https://example.com/one" },
+    { title: "Article Two", url: "https://example.com/two" }
+  ], "Summarize in bullets.");
+  log("\nTest 2 - Tabs prompt:");
+  log(tabsPrompt);
+  log(tabsPrompt.includes("1. Article One") ? "PASS" : "FAIL");
+  log(tabsPrompt.includes("2. Article Two") ? "PASS" : "FAIL");
+
+  // Test 3: buildSelectionPrompt
+  const selPrompt = buildSelectionPrompt("Hello world", "Be concise.");
+  log("\nTest 3 - Selection prompt:");
+  log(selPrompt);
+  log(selPrompt.includes("Hello world") ? "PASS" : "FAIL");
+  log(selPrompt.startsWith("Be concise.") ? "PASS" : "FAIL");
+
+  // Test 4: Selection truncation
+  const longText = "a".repeat(15000);
+  const truncPrompt = buildSelectionPrompt(longText, "Summarize.", 10000);
+  log("\nTest 4 - Truncation:");
+  log(truncPrompt.includes("[Text truncated at 10000 characters]") ? "PASS" : "FAIL");
+
+  // Test 5: getPresets returns defaults
+  const presets = await getPresets();
+  log("\nTest 5 - Default presets:");
+  log(presets.length === 3 ? "PASS" : "FAIL");
+  log(presets[0].id === "concise" ? "PASS" : "FAIL");
+
+  // Test 6: getPreset by ID
+  const detailed = await getPreset("detailed");
+  log("\nTest 6 - getPreset:");
+  log(detailed.id === "detailed" ? "PASS" : "FAIL");
+
+  // Test 7: getPreset fallback
+  const fallback = await getPreset("nonexistent");
+  log("\nTest 7 - Fallback preset:");
+  log(fallback.id === "concise" ? "PASS" : "FAIL");
+}
+runTests();
+</script>
+</body>
+</html>
