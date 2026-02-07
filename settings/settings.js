@@ -69,12 +69,32 @@ function renderPresets(customPresets, defaultPresetId) {
     const isDefault = preset.id === defaultPresetId;
     const isBuiltIn = DEFAULT_PRESETS.some(p => p.id === preset.id);
 
-    item.innerHTML = `
-      <input type="radio" name="default-preset" value="${preset.id}" ${isDefault ? "checked" : ""}>
-      <span class="name">${preset.name}</span>
-      <span class="instruction">${preset.instruction}</span>
-      ${isBuiltIn ? "" : `<button class="danger delete-preset" data-id="${preset.id}">Delete</button>`}
-    `;
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "default-preset";
+    radio.value = preset.id;
+    if (isDefault) radio.checked = true;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "name";
+    nameSpan.textContent = preset.name;
+
+    const instrSpan = document.createElement("span");
+    instrSpan.className = "instruction";
+    instrSpan.textContent = preset.instruction;
+
+    item.appendChild(radio);
+    item.appendChild(nameSpan);
+    item.appendChild(instrSpan);
+
+    if (!isBuiltIn) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "danger delete-preset";
+      delBtn.dataset.id = preset.id;
+      delBtn.textContent = "Delete";
+      item.appendChild(delBtn);
+    }
+
     presetList.appendChild(item);
   }
 

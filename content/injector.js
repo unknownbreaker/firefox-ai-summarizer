@@ -1,14 +1,29 @@
 /**
  * Injector content script.
- * Runs inside the LLM web UI (ChatGPT, Claude, or custom).
- * Listens for "do-inject" messages, finds the chat input, pastes the prompt, and submits.
+ * Runs inside the LLM web UI (ChatGPT, Claude, or custom) loaded as the sidebar panel.
+ * Checks for a pending prompt in storage on load, and also listens for "do-inject" messages.
  */
 
-browser.runtime.onMessage.addListener(async (message) => {
+// Check for a pending prompt on page load
+async function checkPendingPrompt() {
+  const stored = await browser.storage.local.get(["pendingPrompt"]);
+  if (!stored.pendingPrompt) return;
+
+  const { prompt, provider } = stored.pendingPrompt;
+
+  // Clear it immediately so it doesn't re-trigger
+  await browser.storage.local.remove("pendingPrompt");
+
+  await doInject(prompt, provider);
+}
+
+// Also listen for direct messages
+browser.runtime.onMessage.addListener((message) => {
   if (message.type !== "do-inject") return;
+  return doInject(message.prompt, message.provider);
+});
 
-  const { prompt, provider } = message;
-
+async function doInject(prompt, provider) {
   try {
     const input = await waitForElement(provider.inputSelector, 10000);
     if (!input) {
@@ -64,7 +79,10 @@ browser.runtime.onMessage.addListener(async (message) => {
       providerName: provider.name
     });
   }
-});
+}
+
+// Check for pending prompt after a short delay to let the page initialize
+setTimeout(checkPendingPrompt, 2000);
 
 /**
  * Wait for an element matching the selector to appear in the DOM.
@@ -101,15 +119,14 @@ function waitForElement(selector, timeoutMs) {
  */
 function setInputValue(element, value) {
   if (element.tagName === "TEXTAREA" || element.tagName === "INPUT") {
-    // Standard input/textarea
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype, "value"
-    )?.set || Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype, "value"
-    )?.set;
+    // Use the correct prototype setter for the element type
+    const proto = element.tagName === "TEXTAREA"
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    const nativeValueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(element, value);
+    if (nativeValueSetter) {
+      nativeValueSetter.call(element, value);
     } else {
       element.value = value;
     }

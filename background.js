@@ -20,31 +20,22 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // --- Message Handling (from popup, sidebar, injector) ---
 
-browser.runtime.onMessage.addListener(async (message, sender) => {
-  if (message.type === "summarize-page") {
-    await handleSummarizePage();
-  }
-
-  if (message.type === "summarize-tabs") {
-    await handleSummarizeTabs();
-  }
-
-  if (message.type === "summarize-selection-from-popup") {
-    const tab = await getActiveTab();
-    await handleSummarizeSelection(tab);
-  }
-
-  if (message.type === "do-inject-via-background") {
-    // Relayed from sidebar — inject the content script into the sidebar's LLM page
-    await doInjectViaBackground(message.prompt, message.provider);
-  }
-
-  if (message.type === "injection-error") {
-    await handleInjectionError(message);
-  }
-
-  if (message.type === "injection-success") {
-    // No action needed — LLM is generating the summary in the sidebar
+browser.runtime.onMessage.addListener((message, sender) => {
+  switch (message.type) {
+    case "summarize-page":
+      return handleSummarizePage();
+    case "summarize-tabs":
+      return handleSummarizeTabs();
+    case "summarize-selection-from-popup": {
+      return getActiveTab().then(tab => handleSummarizeSelection(tab));
+    }
+    case "injection-error":
+      return handleInjectionError(message);
+    case "injection-success":
+      // No action needed — LLM is generating the summary in the sidebar
+      return;
+    case "reload-provider":
+      return loadSidebarProvider();
   }
 });
 
@@ -110,8 +101,35 @@ async function handleSummarizeSelection(tab) {
   }
 }
 
+// --- Sidebar Provider Management ---
+
+/**
+ * Set the sidebar panel URL to the active provider's URL.
+ * The injector content script (registered in manifest.json) will auto-load
+ * on matching provider domains.
+ */
+async function loadSidebarProvider() {
+  const { provider, error } = await getActiveProvider();
+
+  if (error) {
+    // Reset to fallback page
+    await browser.sidebarAction.setPanel({ panel: "sidebar/sidebar.html" });
+    return;
+  }
+
+  await browser.sidebarAction.setPanel({ panel: provider.url });
+}
+
+// Initialize sidebar panel on startup
+loadSidebarProvider();
+
 // --- Injection Pipeline ---
 
+/**
+ * Store the prompt and open the sidebar. The injector content script
+ * (running inside the LLM page loaded as the sidebar panel) picks up
+ * the pending prompt from storage and injects it.
+ */
 async function injectPrompt(prompt) {
   const { provider, error } = await getActiveProvider();
 
@@ -120,41 +138,16 @@ async function injectPrompt(prompt) {
     return;
   }
 
-  // Store the pending prompt so the sidebar can pick it up after loading
+  // Ensure sidebar is set to provider URL
+  await browser.sidebarAction.setPanel({ panel: provider.url });
+
+  // Store prompt for the injector to pick up
   await browser.storage.local.set({
     pendingPrompt: { prompt, provider }
   });
 
-  // Open the sidebar
+  // Open the sidebar — the injector content script will read pendingPrompt
   await browser.sidebarAction.open();
-}
-
-/**
- * Called when the sidebar relays a do-inject-via-background message.
- * Finds the sidebar's internal tab/frame and injects the content script.
- */
-async function doInjectViaBackground(prompt, provider) {
-  // Find the tab/frame that's hosting the LLM URL
-  const allTabs = await browser.tabs.query({});
-  const llmTab = allTabs.find(t => t.url && t.url.startsWith(provider.url));
-
-  if (llmTab) {
-    try {
-      await browser.tabs.executeScript(llmTab.id, { file: "content/injector.js" });
-      await browser.tabs.sendMessage(llmTab.id, {
-        type: "do-inject",
-        prompt: prompt,
-        provider: provider
-      });
-      return;
-    } catch (err) {
-      // Fall through to clipboard fallback
-    }
-  }
-
-  // Fallback: copy to clipboard
-  await copyToClipboard(prompt);
-  notify("Auto-inject failed. The prompt has been copied to your clipboard — paste it manually.");
 }
 
 // --- Helpers ---
@@ -189,16 +182,4 @@ async function handleInjectionError(message) {
 
   const msg = errorMessages[message.error] || errorMessages["unknown"];
   notify(msg);
-}
-
-async function copyToClipboard(text) {
-  // Background scripts can't use navigator.clipboard directly.
-  // Use a temporary offscreen approach or the clipboardWrite permission.
-  // In Manifest V2, we can use document.execCommand in a background page.
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
 }

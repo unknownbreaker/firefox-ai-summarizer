@@ -4,15 +4,14 @@
  * Responds to "extract-selection" messages from the background script.
  */
 
-browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message) => {
   if (message.type !== "extract-selection") return;
 
   const selection = window.getSelection().toString().trim();
 
   if (!selection) {
-    sendResponse({ text: null, error: "No text is selected. Highlight some text first, then try again." });
-    return;
+    return Promise.resolve({ text: null, error: "No text is selected. Highlight some text first, then try again." });
   }
 
-  sendResponse({ text: selection, error: null });
+  return Promise.resolve({ text: selection, error: null });
 });

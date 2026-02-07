@@ -4,29 +4,26 @@
   <meta charset="utf-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; }
-    #llm-frame {
-      width: 100%;
-      height: 100%;
-      border: none;
-    }
-    #status {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
+    html, body { width: 100%; height: 100%; }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       font-family: system-ui, sans-serif;
       color: #666;
       text-align: center;
+      padding: 24px;
     }
-    #status.hidden { display: none; }
-    #llm-frame.hidden { display: none; }
+    #status { max-width: 240px; }
+    #status p { margin-bottom: 12px; }
+    a { color: #0060df; }
   </style>
 </head>
 <body>
-  <div id="status">Loading LLM provider...</div>
-  <iframe id="llm-frame" class="hidden"></iframe>
-  <script src="../providers/providers.js"></script>
+  <div id="status">
+    <p>No LLM provider configured.</p>
+    <p>Open <a href="#" id="open-settings">Settings</a> to choose a provider.</p>
+  </div>
   <script src="sidebar.js"></script>
 </body>
 </html>

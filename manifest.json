@@ -29,6 +29,17 @@
     "page": "settings/settings.html",
     "open_in_tab": true
   },
-  "content_scripts": [],
+  "content_scripts": [
+    {
+      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
+      "js": ["content/injector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://claude.ai/*"],
+      "js": ["content/injector.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png" }
 }
