@@ -22,16 +22,18 @@ async function init() {
 
 // --- Event Listeners ---
 
-document.getElementById("summarize-page").addEventListener("click", async () => {
-  await saveSelections();
-  await browser.runtime.sendMessage({ type: "summarize-page" });
-  window.close();
+document.getElementById("summarize-page").addEventListener("click", () => {
+  // All calls are synchronous (fire-and-forget) because opening the sidebar
+  // may dismiss the popup, killing any pending await chains.
+  browser.sidebarAction.open();
+  saveSelections();
+  browser.runtime.sendMessage({ type: "summarize-page" });
 });
 
-document.getElementById("summarize-tabs").addEventListener("click", async () => {
-  await saveSelections();
-  await browser.runtime.sendMessage({ type: "summarize-tabs" });
-  window.close();
+document.getElementById("summarize-tabs").addEventListener("click", () => {
+  browser.sidebarAction.open();
+  saveSelections();
+  browser.runtime.sendMessage({ type: "summarize-tabs" });
 });
 
 providerSelect.addEventListener("change", async () => {

@@ -3,6 +3,11 @@
   "name": "AI Summarizer",
   "version": "0.1.0",
   "description": "Summarize web content using LLM web UIs in the sidebar.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ai-summarizer@firefox-ai-summarizer"
+    }
+  },
   "permissions": [
     "activeTab",
     "tabs",

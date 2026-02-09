@@ -4,18 +4,76 @@
  * Checks for a pending prompt in storage on load, and also listens for "do-inject" messages.
  */
 
-// Check for a pending prompt on page load
-async function checkPendingPrompt() {
-  const stored = await browser.storage.local.get(["pendingPrompt"]);
-  if (!stored.pendingPrompt) return;
+// Guard against concurrent injection from multiple triggers
+let injecting = false;
 
-  const { prompt, provider } = stored.pendingPrompt;
+// Prevent the dying injector from consuming a prompt during page unload
+// (e.g., when the provider changes and setPanel triggers a reload).
+let unloading = false;
+window.addEventListener("beforeunload", () => { unloading = true; });
 
-  // Clear it immediately so it doesn't re-trigger
-  await browser.storage.local.remove("pendingPrompt");
+/**
+ * Consume and inject a pending prompt from storage.
+ * Uses a flag to prevent double-injection when both checkPendingPrompt
+ * (on page load) and storage.onChanged fire for the same prompt.
+ */
+async function consumePendingPrompt() {
+  if (injecting || unloading) return;
+  injecting = true;
 
-  await doInject(prompt, provider);
+  try {
+    const stored = await browser.storage.local.get(["pendingPrompt"]);
+    if (!stored.pendingPrompt) return;
+
+    const { prompt, provider } = stored.pendingPrompt;
+
+    // Clear it immediately so it doesn't re-trigger
+    await browser.storage.local.remove("pendingPrompt");
+
+    await doInject(prompt, provider);
+  } finally {
+    injecting = false;
+  }
 }
+
+// Ask the background for a pending prompt on page load.
+// Uses a direct message handshake instead of reading storage, which avoids
+// timing races when the sidebar is opening and the prompt was stored before
+// or after the content script loaded.
+async function checkPendingPrompt() {
+  if (injecting || unloading) return;
+  injecting = true;
+
+  try {
+    try {
+      const data = await browser.runtime.sendMessage({ type: "injector-ready" });
+      if (data && data.prompt) {
+        await doInject(data.prompt, data.provider);
+        return;
+      }
+    } catch (_) {
+      // Background might not be ready yet
+    }
+
+    // Fallback: check storage directly (prompt may have been stored while
+    // the handshake was in flight)
+    const stored = await browser.storage.local.get(["pendingPrompt"]);
+    if (stored.pendingPrompt) {
+      const { prompt, provider } = stored.pendingPrompt;
+      await browser.storage.local.remove("pendingPrompt");
+      await doInject(prompt, provider);
+    }
+  } finally {
+    injecting = false;
+  }
+}
+
+// React to new prompts stored while the sidebar is already open
+browser.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.pendingPrompt && changes.pendingPrompt.newValue) {
+    consumePendingPrompt();
+  }
+});
 
 // Also listen for direct messages
 browser.runtime.onMessage.addListener((message) => {
@@ -81,8 +139,9 @@ async function doInject(prompt, provider) {
   }
 }
 
-// Check for pending prompt after a short delay to let the page initialize
-setTimeout(checkPendingPrompt, 2000);
+// Check for pending prompt immediately on load.
+// No delay needed — waitForElement handles waiting for the DOM.
+checkPendingPrompt();
 
 /**
  * Wait for an element matching the selector to appear in the DOM.

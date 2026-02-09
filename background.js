@@ -7,14 +7,34 @@
 // --- Context Menu Setup ---
 
 browser.contextMenus.create({
+  id: "summarize-page",
+  title: "Summarize This Page",
+  contexts: ["page"]
+});
+
+browser.contextMenus.create({
+  id: "summarize-tabs",
+  title: "Summarize All Tabs",
+  contexts: ["page"]
+});
+
+browser.contextMenus.create({
   id: "summarize-selection",
   title: "Summarize Selection",
   contexts: ["selection"]
 });
 
 browser.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "summarize-selection") {
-    await handleSummarizeSelection(tab);
+  // Open sidebar BEFORE any await — context menu clicks are valid user gestures
+  // for sidebarAction.open(), but the first await breaks the gesture context.
+  browser.sidebarAction.open();
+
+  if (info.menuItemId === "summarize-page") {
+    await handleSummarizePage({ newChat: true });
+  } else if (info.menuItemId === "summarize-tabs") {
+    await handleSummarizeTabs({ newChat: true });
+  } else if (info.menuItemId === "summarize-selection") {
+    await handleSummarizeSelection(tab, { newChat: true });
   }
 });
 
@@ -23,17 +43,36 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 browser.runtime.onMessage.addListener((message, sender) => {
   switch (message.type) {
     case "summarize-page":
-      return handleSummarizePage();
+      return handleSummarizePage({ fromUserGesture: true });
     case "summarize-tabs":
-      return handleSummarizeTabs();
+      return handleSummarizeTabs({ fromUserGesture: true });
     case "summarize-selection-from-popup": {
       return getActiveTab().then(tab => handleSummarizeSelection(tab));
     }
     case "injection-error":
+      // Don't clear pendingPromptData — the error may be from a dying injector
+      // during a newChat reload. The new injector still needs the prompt.
       return handleInjectionError(message);
     case "injection-success":
-      // No action needed — LLM is generating the summary in the sidebar
+      pendingPromptData = null;
       return;
+    case "injector-ready": {
+      // Handshake: injector loaded and is asking for a pending prompt.
+      // Return from memory first (most reliable), fall back to storage.
+      const data = pendingPromptData;
+      if (data) {
+        pendingPromptData = null;
+        browser.storage.local.remove("pendingPrompt");
+        return Promise.resolve(data);
+      }
+      return browser.storage.local.get(["pendingPrompt"]).then(stored => {
+        if (stored.pendingPrompt) {
+          browser.storage.local.remove("pendingPrompt");
+          return stored.pendingPrompt;
+        }
+        return null;
+      });
+    }
     case "reload-provider":
       return loadSidebarProvider();
   }
@@ -41,7 +80,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 
 // --- Feature Handlers ---
 
-async function handleSummarizePage() {
+async function handleSummarizePage({ fromUserGesture = false, newChat = false } = {}) {
   const tab = await getActiveTab();
   if (!tab || !tab.url) {
     notify("No active page found.");
@@ -50,10 +89,10 @@ async function handleSummarizePage() {
 
   const preset = await getDefaultPreset();
   const prompt = buildPagePrompt(tab.url, preset.instruction);
-  await injectPrompt(prompt);
+  await injectPrompt(prompt, { fromUserGesture, newChat });
 }
 
-async function handleSummarizeTabs() {
+async function handleSummarizeTabs({ fromUserGesture = false, newChat = false } = {}) {
   const tabs = await browser.tabs.query({ currentWindow: true });
   const summarizableTabs = tabs.filter(t =>
     t.url &&
@@ -69,10 +108,10 @@ async function handleSummarizeTabs() {
   const tabData = summarizableTabs.map(t => ({ title: t.title || t.url, url: t.url }));
   const preset = await getDefaultPreset();
   const prompt = buildTabsPrompt(tabData, preset.instruction);
-  await injectPrompt(prompt);
+  await injectPrompt(prompt, { fromUserGesture, newChat });
 }
 
-async function handleSummarizeSelection(tab) {
+async function handleSummarizeSelection(tab, { newChat = false } = {}) {
   if (!tab) {
     notify("No active tab found.");
     return;
@@ -94,7 +133,7 @@ async function handleSummarizeSelection(tab) {
 
     const preset = await getDefaultPreset();
     const prompt = buildSelectionPrompt(results.text, preset.instruction, charLimit);
-    await injectPrompt(prompt);
+    await injectPrompt(prompt, { newChat });
 
   } catch (err) {
     notify("Could not read the selected text. Try selecting the text again.");
@@ -125,12 +164,23 @@ loadSidebarProvider();
 
 // --- Injection Pipeline ---
 
+// Hold the pending prompt in memory so the injector can request it directly
+// via the "injector-ready" handshake, avoiding storage timing races.
+let pendingPromptData = null;
+
 /**
- * Store the prompt and open the sidebar. The injector content script
- * (running inside the LLM page loaded as the sidebar panel) picks up
- * the pending prompt from storage and injects it.
+ * Deliver a prompt to the injector content script.
+ *
+ * Prompt is always stored in both memory and storage. Delivery paths:
+ *   1. newChat — also calls setPanel() to reload the sidebar for a fresh
+ *      conversation. The new injector picks up the prompt via "injector-ready"
+ *      handshake (memory). If setPanel() doesn't reload, the running injector
+ *      picks it up via storage.onChanged.
+ *   2. Sidebar opening (first open) — injector sends "injector-ready", gets
+ *      the prompt from memory (or storage fallback).
+ *   3. Sidebar already open — storage.onChanged fires in the running injector.
  */
-async function injectPrompt(prompt) {
+async function injectPrompt(prompt, { fromUserGesture = false, newChat = false } = {}) {
   const { provider, error } = await getActiveProvider();
 
   if (error) {
@@ -138,16 +188,26 @@ async function injectPrompt(prompt) {
     return;
   }
 
-  // Ensure sidebar is set to provider URL
-  await browser.sidebarAction.setPanel({ panel: provider.url });
+  // Hold in memory for the injector-ready handshake (new page loads)
+  pendingPromptData = { prompt, provider };
 
-  // Store prompt for the injector to pick up
+  // Write to storage for the storage.onChanged path (sidebar already open)
   await browser.storage.local.set({
     pendingPrompt: { prompt, provider }
   });
 
-  // Open the sidebar — the injector content script will read pendingPrompt
-  await browser.sidebarAction.open();
+  if (newChat) {
+    // Force a fresh chat by reloading the sidebar panel. Append a cache-bust
+    // parameter so Firefox treats it as a new URL even if the provider URL
+    // was already set — setPanel() with the same URL doesn't trigger a reload.
+    const separator = provider.url.includes("?") ? "&" : "?";
+    const freshUrl = provider.url + separator + "_t=" + Date.now();
+    await browser.sidebarAction.setPanel({ panel: freshUrl });
+  }
+
+  if (!fromUserGesture) {
+    notify("Prompt ready — open the sidebar to see the summary.");
+  }
 }
 
 // --- Helpers ---
