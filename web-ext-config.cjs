@@ -9,6 +9,7 @@ module.exports = {
     "web-ext-config.cjs",
     "CHANGELOG.md",
     "release.sh",
+    "README.md",
     ".gitignore",
   ],
 };
