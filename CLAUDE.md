@@ -4,25 +4,35 @@ Firefox WebExtension (Manifest V2) that summarizes web content using LLM web UIs
 
 ## Architecture
 
-**Flow:** popup/context-menu → background.js (builds prompt) → stores in memory + storage.local → sidebar loads LLM URL via setPanel() → content/injector.js fills input + submits
+**Flow:** popup/context-menu → background.js (extracts article + builds prompt) → stores in memory + storage.local → sidebar loads LLM URL via setPanel() → content/injector.js uploads file + fills input + submits
 
 ```
 User action (popup button / context menu / keyboard shortcut)
         │
         ▼
-  background.js ─── builds prompt (lib/prompt-builder.js)
+  background.js ─── extracts article (lib/readability.js + content/article-extractor.js)
+        │            builds prompt (lib/prompt-builder.js)
         │            gets provider config (providers/providers.js)
         │
-        ├─ stores prompt in memory (pendingPromptData) + storage.local
+        ├─ [if extraction succeeded]
+        │   builds article file + short prompt + fallback prompts
+        │
+        ├─ [if extraction failed]
+        │   builds URL-only prompt (original behavior)
+        │
+        ├─ stores { prompt, provider, articleFile, urlFallback, textFallback }
+        │   in memory (pendingPromptData) + storage.local
         │
         ├─ [if newChat] sidebarAction.setPanel(providerUrl + cacheBust)
-        │                  → forces sidebar reload → new injector loads
         │
         ▼
   content/injector.js (runs on LLM domain in sidebar)
         │
-        ├─ Path 1: page load → sends "injector-ready" → gets prompt from background memory
-        ├─ Path 2: storage.onChanged → reads prompt from storage.local
+        ├─ Path 1: page load → "injector-ready" → gets prompt data from background
+        ├─ Path 2: storage.onChanged → reads prompt data from storage.local
+        │
+        ├─ [if articleFile present] tries file upload via DataTransfer API
+        │   └─ fallback: URL-only prompt → paste text → clipboard
         │
         ▼
   Finds input element → sets value → clicks submit
@@ -45,11 +55,12 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 - **`sendResponse` is deprecated** — Use `return Promise.resolve(value)` from listeners.
 - **`storage.onChanged` fires in ALL extension contexts** — background, content scripts, popups, sidebar. Useful as a cross-context event bus.
 - **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
+- **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only.
 
 ## Design Decisions
 
 - **Manifest V2** — Firefox's sidebar API and content script injection are more straightforward in V2. Firefox has not deprecated V2. No build step — plain JavaScript.
-- **URLs, not extracted text** — Page/tab summarization sends only URLs. Avoids text extraction complexity; works because ChatGPT and Claude can browse URLs natively. Selection summarization is the exception (sends actual text).
+- **Article extraction with fallbacks** — Page summarization extracts article content via Readability.js and uploads it as a file attachment. Falls back to URL-only prompts when extraction fails (non-readable pages, file upload errors). Selection summarization still sends actual text.
 - **Error fallback chain** — Input not found (10s timeout) → copy to clipboard. Login page detected → notify "log in". Submit button not found → notify "submit manually". `sidebarAction.open()` outside gesture → notify "open sidebar".
 
 ## Quick Reference
@@ -58,6 +69,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 |------|--------------|
 | Add/change a provider | `providers/providers.js`, `manifest.json` (content_scripts) |
 | Change prompt behavior | `lib/prompt-builder.js` |
+| Fix article extraction | `content/article-extractor.js`, `lib/readability.js` |
 | Fix injection failures | `content/injector.js` |
 | Fix sidebar open/close | `background.js` (handleSummarizeRequest) |
 | Change popup UI | `popup/popup.{html,js}` |
@@ -71,6 +83,8 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `background.js` | 244 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching |
 | `content/injector.js` | 222 | Runs on LLM pages in sidebar. Receives prompts, fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
+| `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability |
+| `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
 | `providers/providers.js` | 66 | Provider config (ChatGPT/Claude/custom). Load/save from `storage.sync`, merge overrides |
 | `popup/popup.{html,js}` | 145 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link |
@@ -90,7 +104,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `injectionDelay` | sync | ms before clicking submit (default: 500) |
 | `autoSubmit` | sync | boolean (default: true) |
 | `charLimit` | sync | Max chars for selection (default: 10000) |
-| `pendingPrompt` | local | `{ prompt, provider }` — consumed by injector |
+| `pendingPrompt` | local | `{ prompt, provider, articleFile?, urlFallback?, textFallback? }` — consumed by injector |
 
 ## Development
 
@@ -106,5 +120,5 @@ Tests are manual HTML files opened in a browser (no CLI runner):
 
 ## Provider Selectors (current as of v0.2.0)
 
-- **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`
-- **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`
+- **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`, file=`input[type='file']`
+- **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`, file=`input[type='file']`
