@@ -69,6 +69,31 @@ async function runTests() {
   log("\nTest 5 - Overrides:");
   log(JSON.stringify(result, null, 2));
   log(result.provider.inputSelector === "textarea.custom-selector" ? "PASS" : "FAIL");
+
+  // Test 6: Default providers include fileInputSelector
+  // Reset overrides so we get clean defaults
+  delete browser.storage.sync._data.providerOverrides;
+  await setActiveProvider("chatgpt");
+  result = await getActiveProvider();
+  log("\nTest 6 - ChatGPT has fileInputSelector:");
+  log(result.provider.fileInputSelector ? "PASS" : "FAIL");
+
+  await setActiveProvider("claude");
+  result = await getActiveProvider();
+  log("\nTest 7 - Claude has fileInputSelector:");
+  log(result.provider.fileInputSelector ? "PASS" : "FAIL");
+
+  // Test 8: Custom provider template includes fileInputSelector field
+  await setActiveProvider("custom");
+  browser.storage.sync._data.customProvider = {
+    url: "http://localhost:8080",
+    inputSelector: "textarea",
+    submitSelector: "button",
+    fileInputSelector: "input[type=file]"
+  };
+  result = await getActiveProvider();
+  log("\nTest 8 - Custom provider fileInputSelector:");
+  log(result.provider.fileInputSelector === "input[type=file]" ? "PASS" : "FAIL");
 }
 runTests();
 </script>

@@ -71,6 +71,47 @@ async function runTests() {
   const fallback = await getPreset("nonexistent");
   log("\nTest 7 - Fallback preset:");
   log(fallback.id === "concise" ? "PASS" : "FAIL");
+
+  // Test 8: buildArticlePrompt
+  const articlePrompt = buildArticlePrompt("Provide a brief 2-3 sentence summary.");
+  log("\nTest 8 - Article prompt (for file upload):");
+  log(articlePrompt);
+  log(articlePrompt.includes("Summarize the attached article") ? "PASS" : "FAIL");
+  log(articlePrompt.includes("Provide a brief 2-3 sentence summary.") ? "PASS" : "FAIL");
+
+  // Test 9: buildArticleFileContent - single article
+  const singleFile = buildArticleFileContent([
+    { title: "Test Article", byline: "Jane Doe", url: "https://example.com/article", textContent: "This is the article body." }
+  ]);
+  log("\nTest 9 - Single article file:");
+  log(singleFile.substring(0, 200));
+  log(singleFile.includes("Source: https://example.com/article") ? "PASS" : "FAIL");
+  log(singleFile.includes("Title: Test Article") ? "PASS" : "FAIL");
+  log(singleFile.includes("Author: Jane Doe") ? "PASS" : "FAIL");
+  log(singleFile.includes("This is the article body.") ? "PASS" : "FAIL");
+  log(!singleFile.includes("=== Article") ? "PASS: no multi-article header" : "FAIL");
+
+  // Test 10: buildArticleFileContent - multiple articles
+  const multiFile = buildArticleFileContent([
+    { title: "First", byline: "Author A", url: "https://a.com", textContent: "Body A." },
+    { title: "Second", byline: null, url: "https://b.com", textContent: "Body B." },
+    { title: null, byline: null, url: "https://c.com", textContent: null, extractionFailed: true }
+  ]);
+  log("\nTest 10 - Multi-article file:");
+  log(multiFile.substring(0, 400));
+  log(multiFile.includes("=== Article 1 of 3 ===") ? "PASS" : "FAIL");
+  log(multiFile.includes("=== Article 2 of 3 ===") ? "PASS" : "FAIL");
+  log(multiFile.includes("=== Article 3 of 3 ===") ? "PASS" : "FAIL");
+  log(multiFile.includes("Body A.") ? "PASS" : "FAIL");
+  log(multiFile.includes("Body B.") ? "PASS" : "FAIL");
+  log(multiFile.includes("Could not extract") ? "PASS: failed extraction noted" : "FAIL");
+
+  // Test 11: buildArticleFileContent - no byline omits Author line
+  const noBylFile = buildArticleFileContent([
+    { title: "No Author", byline: null, url: "https://x.com", textContent: "Content." }
+  ]);
+  log("\nTest 11 - No byline:");
+  log(!noBylFile.includes("Author:") ? "PASS" : "FAIL");
 }
 runTests();
 </script>

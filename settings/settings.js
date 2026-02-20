@@ -8,6 +8,8 @@ const toggleOverrides = document.getElementById("toggle-overrides");
 const overrideFields = document.getElementById("override-fields");
 const overrideInput = document.getElementById("override-input");
 const overrideSubmit = document.getElementById("override-submit");
+const customFileInputSelector = document.getElementById("custom-file-input-selector");
+const overrideFileInput = document.getElementById("override-file-input");
 const presetList = document.getElementById("preset-list");
 const newPresetName = document.getElementById("new-preset-name");
 const newPresetInstruction = document.getElementById("new-preset-instruction");
@@ -40,6 +42,7 @@ async function loadSettings() {
     customUrl.value = stored.customProvider.url || "";
     customInputSelector.value = stored.customProvider.inputSelector || "";
     customSubmitSelector.value = stored.customProvider.submitSelector || "";
+    customFileInputSelector.value = stored.customProvider.fileInputSelector || "";
   }
 
   // Overrides
@@ -47,6 +50,7 @@ async function loadSettings() {
   const currentOverrides = overrides[providerId] || {};
   overrideInput.value = currentOverrides.inputSelector || "";
   overrideSubmit.value = currentOverrides.submitSelector || "";
+  overrideFileInput.value = currentOverrides.fileInputSelector || "";
 
   // Presets
   renderPresets(stored.customPresets || [], stored.defaultPresetId || "concise");
@@ -165,7 +169,8 @@ document.getElementById("save-settings").addEventListener("click", async () => {
       name: "Custom",
       url: customUrl.value.trim(),
       inputSelector: customInputSelector.value.trim(),
-      submitSelector: customSubmitSelector.value.trim()
+      submitSelector: customSubmitSelector.value.trim(),
+      fileInputSelector: customFileInputSelector.value.trim()
     };
   }
 
@@ -173,12 +178,14 @@ document.getElementById("save-settings").addEventListener("click", async () => {
   if (selectedProvider !== "custom") {
     const inputOverride = overrideInput.value.trim();
     const submitOverride = overrideSubmit.value.trim();
-    if (inputOverride || submitOverride) {
+    const fileInputOverride = overrideFileInput.value.trim();
+    if (inputOverride || submitOverride || fileInputOverride) {
       const stored = await browser.storage.sync.get(["providerOverrides"]);
       const overrides = stored.providerOverrides || {};
       overrides[selectedProvider] = {};
       if (inputOverride) overrides[selectedProvider].inputSelector = inputOverride;
       if (submitOverride) overrides[selectedProvider].submitSelector = submitOverride;
+      if (fileInputOverride) overrides[selectedProvider].fileInputSelector = fileInputOverride;
       settings.providerOverrides = overrides;
     }
   }
