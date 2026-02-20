@@ -1,3 +1,11 @@
+## v0.3.1 (2026-02-20)
+### Bug Fixes
+- wait for submit button to be enabled before clicking (1843a46)
+- restore "as though pasted" phrasing in article upload prompt (eacabe0)
+
+### Other Changes
+- Merge pull request #2 from unknownbreaker/worktree-article-extraction (0837307)
+
 ## v0.3.0 (2026-02-20)
 ### Features
 - article extraction + file upload for LLM sidebar (5b8fd7e)
