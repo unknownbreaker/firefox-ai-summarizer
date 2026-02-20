@@ -170,7 +170,7 @@ async function doInject(prompt, provider, articleFile = null, urlFallback = null
     if (autoSubmit) {
       await sleep(delay);
 
-      const submitBtn = document.querySelector(provider.submitSelector);
+      const submitBtn = await waitForClickableButton(provider.submitSelector, 10000);
       if (!submitBtn) {
         browser.runtime.sendMessage({
           type: "injection-error",
@@ -229,6 +229,37 @@ function waitForElement(selector, timeoutMs) {
 
     setTimeout(() => {
       observer.disconnect();
+      resolve(null);
+    }, timeoutMs);
+  });
+}
+
+/**
+ * Wait for a button matching the selector to be present and enabled.
+ * Polls because attribute changes (disabled → enabled) don't trigger
+ * MutationObserver on childList alone.
+ */
+function waitForClickableButton(selector, timeoutMs) {
+  return new Promise((resolve) => {
+    const isClickable = (el) => el && !el.disabled && el.getAttribute("aria-disabled") !== "true";
+
+    const existing = document.querySelector(selector);
+    if (isClickable(existing)) {
+      resolve(existing);
+      return;
+    }
+
+    const pollInterval = 200;
+    const timer = setInterval(() => {
+      const el = document.querySelector(selector);
+      if (isClickable(el)) {
+        clearInterval(timer);
+        resolve(el);
+      }
+    }, pollInterval);
+
+    setTimeout(() => {
+      clearInterval(timer);
       resolve(null);
     }, timeoutMs);
   });
