@@ -88,8 +88,28 @@ async function handleSummarizePage({ fromUserGesture = false, newChat = false } 
   }
 
   const preset = await getDefaultPreset();
-  const prompt = buildPagePrompt(tab.url, preset.instruction);
-  await injectPrompt(prompt, { fromUserGesture, newChat });
+  const article = await extractArticle(tab.id);
+
+  if (article.extractionFailed) {
+    // Extraction failed — fall back to URL-only prompt (current behavior)
+    const prompt = buildPagePrompt(tab.url, preset.instruction);
+    await injectPrompt(prompt, { fromUserGesture, newChat });
+    return;
+  }
+
+  // Extraction succeeded — deliver as file upload
+  const fileContent = buildArticleFileContent([article]);
+  const prompt = buildArticlePrompt(preset.instruction);
+  const urlFallback = buildPagePrompt(tab.url, preset.instruction);
+  const textFallback = buildSelectionPrompt(article.textContent, preset.instruction);
+
+  await injectPrompt(prompt, {
+    fromUserGesture,
+    newChat,
+    articleFile: { name: "article.txt", content: fileContent },
+    urlFallback,
+    textFallback
+  });
 }
 
 async function handleSummarizeTabs({ fromUserGesture = false, newChat = false } = {}) {
@@ -105,10 +125,38 @@ async function handleSummarizeTabs({ fromUserGesture = false, newChat = false } 
     return;
   }
 
-  const tabData = summarizableTabs.map(t => ({ title: t.title || t.url, url: t.url }));
   const preset = await getDefaultPreset();
-  const prompt = buildTabsPrompt(tabData, preset.instruction);
-  await injectPrompt(prompt, { fromUserGesture, newChat });
+
+  // Extract articles from all tabs in parallel
+  const articles = await Promise.all(
+    summarizableTabs.map(async (t) => {
+      const article = await extractArticle(t.id);
+      if (article.extractionFailed) {
+        return { ...article, url: t.url, title: t.title || t.url };
+      }
+      return article;
+    })
+  );
+
+  const anyExtracted = articles.some(a => !a.extractionFailed);
+  const tabData = summarizableTabs.map(t => ({ title: t.title || t.url, url: t.url }));
+  const urlFallback = buildTabsPrompt(tabData, preset.instruction);
+
+  if (!anyExtracted) {
+    // No articles extracted — fall back to URL-only for all
+    await injectPrompt(urlFallback, { fromUserGesture, newChat });
+    return;
+  }
+
+  const fileContent = buildArticleFileContent(articles);
+  const prompt = buildArticlePrompt(preset.instruction);
+
+  await injectPrompt(prompt, {
+    fromUserGesture,
+    newChat,
+    articleFile: { name: "articles.txt", content: fileContent },
+    urlFallback
+  });
 }
 
 async function handleSummarizeSelection(tab, { newChat = false } = {}) {
@@ -180,7 +228,7 @@ let pendingPromptData = null;
  *      the prompt from memory (or storage fallback).
  *   3. Sidebar already open — storage.onChanged fires in the running injector.
  */
-async function injectPrompt(prompt, { fromUserGesture = false, newChat = false } = {}) {
+async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, articleFile = null, urlFallback = null, textFallback = null } = {}) {
   const { provider, error } = await getActiveProvider();
 
   if (error) {
@@ -188,13 +236,13 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false }
     return;
   }
 
+  const data = { prompt, provider, articleFile, urlFallback, textFallback };
+
   // Hold in memory for the injector-ready handshake (new page loads)
-  pendingPromptData = { prompt, provider };
+  pendingPromptData = data;
 
   // Write to storage for the storage.onChanged path (sidebar already open)
-  await browser.storage.local.set({
-    pendingPrompt: { prompt, provider }
-  });
+  await browser.storage.local.set({ pendingPrompt: data });
 
   if (newChat) {
     // Force a fresh chat by reloading the sidebar panel. Append a cache-bust
@@ -207,6 +255,23 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false }
 
   if (!fromUserGesture) {
     notify("Prompt ready — open the sidebar to see the summary.");
+  }
+}
+
+// --- Article Extraction ---
+
+/**
+ * Extract article content from a tab using Readability.js.
+ * Returns { title, byline, url, textContent } on success,
+ * or { extractionFailed: true, reason, url } on failure.
+ */
+async function extractArticle(tabId) {
+  try {
+    await browser.tabs.executeScript(tabId, { file: "lib/readability.js" });
+    var results = await browser.tabs.executeScript(tabId, { file: "content/article-extractor.js" });
+    return results[0] || { extractionFailed: true, reason: "error", url: "" };
+  } catch (e) {
+    return { extractionFailed: true, reason: "error", url: "" };
   }
 }
 
