@@ -4,6 +4,8 @@ Firefox WebExtension (Manifest V2) that summarizes web content using LLM web UIs
 
 ## Architecture
 
+**Flow:** popup/context-menu → background.js (builds prompt) → stores in memory + storage.local → sidebar loads LLM URL via setPanel() → content/injector.js fills input + submits
+
 ```
 User action (popup button / context menu / keyboard shortcut)
         │
@@ -36,6 +38,30 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 4. **`beforeunload` guard in injector** — Prevents a dying injector from consuming a prompt during provider-switch reloads.
 5. **DOM API for user content, never innerHTML** — Extension contexts have elevated privileges; innerHTML with user data = XSS.
 6. **Cache-bust for setPanel()** — `setPanel()` with the same URL is a no-op. Append `?_t=Date.now()` to force reload.
+
+## Additional Gotchas
+
+- **`getPanel()` URL comparison is unreliable** — Firefox may normalize URLs. Track provider state in memory instead.
+- **`sendResponse` is deprecated** — Use `return Promise.resolve(value)` from listeners.
+- **`storage.onChanged` fires in ALL extension contexts** — background, content scripts, popups, sidebar. Useful as a cross-context event bus.
+- **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
+
+## Design Decisions
+
+- **Manifest V2** — Firefox's sidebar API and content script injection are more straightforward in V2. Firefox has not deprecated V2. No build step — plain JavaScript.
+- **URLs, not extracted text** — Page/tab summarization sends only URLs. Avoids text extraction complexity; works because ChatGPT and Claude can browse URLs natively. Selection summarization is the exception (sends actual text).
+- **Error fallback chain** — Input not found (10s timeout) → copy to clipboard. Login page detected → notify "log in". Submit button not found → notify "submit manually". `sidebarAction.open()` outside gesture → notify "open sidebar".
+
+## Quick Reference
+
+| Task | Where to look |
+|------|--------------|
+| Add/change a provider | `providers/providers.js`, `manifest.json` (content_scripts) |
+| Change prompt behavior | `lib/prompt-builder.js` |
+| Fix injection failures | `content/injector.js` |
+| Fix sidebar open/close | `background.js` (handleSummarizeRequest) |
+| Change popup UI | `popup/popup.{html,js}` |
+| Change settings UI | `settings/settings.{html,js}` |
 
 ## File Map
 
