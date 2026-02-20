@@ -4,14 +4,16 @@ const DEFAULT_PROVIDERS = {
     name: "ChatGPT",
     url: "https://chat.openai.com",
     inputSelector: "#prompt-textarea",
-    submitSelector: "button[data-testid='send-button']"
+    submitSelector: "button[data-testid='send-button']",
+    fileInputSelector: "input[type='file']"
   },
   claude: {
     id: "claude",
     name: "Claude",
     url: "https://claude.ai/new",
     inputSelector: "div.ProseMirror[contenteditable='true']",
-    submitSelector: "button[aria-label='Send Message']"
+    submitSelector: "button[aria-label='Send Message']",
+    fileInputSelector: "input[type='file']"
   }
 };
 
@@ -20,7 +22,8 @@ const CUSTOM_PROVIDER_TEMPLATE = {
   name: "Custom",
   url: "",
   inputSelector: "",
-  submitSelector: ""
+  submitSelector: "",
+  fileInputSelector: ""
 };
 
 /**
