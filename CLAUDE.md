@@ -97,8 +97,8 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | Key | Area | Purpose |
 |-----|------|---------|
 | `activeProviderId` | sync | `"chatgpt"` / `"claude"` / `"custom"` |
-| `providerOverrides` | sync | `{ [id]: { inputSelector?, submitSelector? } }` |
-| `customProvider` | sync | `{ id, name, url, inputSelector, submitSelector }` |
+| `providerOverrides` | sync | `{ [id]: { inputSelector?, submitSelector?, fileInputSelector? } }` |
+| `customProvider` | sync | `{ id, name, url, inputSelector, submitSelector, fileInputSelector }` |
 | `customPresets` | sync | `[{ id, name, instruction }]` |
 | `defaultPresetId` | sync | Active preset ID (default: `"concise"`) |
 | `injectionDelay` | sync | ms before clicking submit (default: 500) |

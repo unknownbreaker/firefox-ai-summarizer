@@ -106,12 +106,12 @@ browser.runtime.onMessage.addListener((message) => {
 async function tryFileUpload(provider, articleFile) {
   if (!provider.fileInputSelector) return false;
 
-  var fileInput = document.querySelector(provider.fileInputSelector);
+  const fileInput = document.querySelector(provider.fileInputSelector);
   if (!fileInput) return false;
 
   try {
-    var file = new File([articleFile.content], articleFile.name, { type: "text/plain" });
-    var dt = new DataTransfer();
+    const file = new File([articleFile.content], articleFile.name, { type: "text/plain" });
+    const dt = new DataTransfer();
     dt.items.add(file);
     fileInput.files = dt.files;
     fileInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -125,7 +125,7 @@ async function tryFileUpload(provider, articleFile) {
   }
 }
 
-async function doInject(prompt, provider, articleFile, urlFallback, textFallback) {
+async function doInject(prompt, provider, articleFile = null, urlFallback = null, textFallback = null) {
   // Determine the best prompt to use for clipboard fallback
   const clipboardPrompt = textFallback || urlFallback || prompt;
 

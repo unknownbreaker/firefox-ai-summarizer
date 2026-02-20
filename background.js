@@ -268,7 +268,7 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, 
 async function extractArticle(tabId) {
   try {
     await browser.tabs.executeScript(tabId, { file: "lib/readability.js" });
-    var results = await browser.tabs.executeScript(tabId, { file: "content/article-extractor.js" });
+    const results = await browser.tabs.executeScript(tabId, { file: "content/article-extractor.js" });
     return results[0] || { extractionFailed: true, reason: "error", url: "" };
   } catch (e) {
     return { extractionFailed: true, reason: "error", url: "" };
