@@ -1,3 +1,28 @@
+## v0.3.0 (2026-02-20)
+### Features
+- article extraction + file upload for LLM sidebar (5b8fd7e)
+- add fileInputSelector to settings UI (bd678f3)
+- add file upload + fallback chain to injector (ed2a56d)
+- integrate article extraction into summarize handlers (fe5d5ff)
+- add article extractor content script using Readability.js (f7cb70b)
+- add fileInputSelector to provider configs (fda0710)
+- add article prompt builder functions for file upload path (75443f0)
+- bundle Mozilla Readability.js v0.6.0 for content script injection (2cacc95)
+
+### Refactoring
+- address code review suggestions (ee710f5)
+
+### Documentation
+- update CLAUDE.md with article extraction architecture (e5b1736)
+- add article extraction implementation plan (ce5bd7c)
+- add article extraction + file upload design (fc56d9b)
+- consolidate AI onboarding context into CLAUDE.md (728ef1a)
+- add CLAUDE.md, architecture doc, and archive historical plans (b72c964)
+
+### Other Changes
+- chore: add .claude/ to gitignore (fa40b77)
+- Merge pull request #1 from unknownbreaker/docs/improve-ai-onboarding (34623f8)
+
 # Changelog
 
 ## v0.2.0 (2026-02-09)
