@@ -26,11 +26,14 @@ async function consumePendingPrompt() {
     if (!stored.pendingPrompt) return;
 
     const { prompt, provider } = stored.pendingPrompt;
+    const articleFile = stored.pendingPrompt.articleFile || null;
+    const urlFallback = stored.pendingPrompt.urlFallback || null;
+    const textFallback = stored.pendingPrompt.textFallback || null;
 
     // Clear it immediately so it doesn't re-trigger
     await browser.storage.local.remove("pendingPrompt");
 
-    await doInject(prompt, provider);
+    await doInject(prompt, provider, articleFile, urlFallback, textFallback);
   } finally {
     injecting = false;
   }
@@ -48,7 +51,13 @@ async function checkPendingPrompt() {
     try {
       const data = await browser.runtime.sendMessage({ type: "injector-ready" });
       if (data && data.prompt) {
-        await doInject(data.prompt, data.provider);
+        await doInject(
+          data.prompt,
+          data.provider,
+          data.articleFile || null,
+          data.urlFallback || null,
+          data.textFallback || null
+        );
         return;
       }
     } catch (_) {
@@ -60,8 +69,11 @@ async function checkPendingPrompt() {
     const stored = await browser.storage.local.get(["pendingPrompt"]);
     if (stored.pendingPrompt) {
       const { prompt, provider } = stored.pendingPrompt;
+      const articleFile = stored.pendingPrompt.articleFile || null;
+      const urlFallback = stored.pendingPrompt.urlFallback || null;
+      const textFallback = stored.pendingPrompt.textFallback || null;
       await browser.storage.local.remove("pendingPrompt");
-      await doInject(prompt, provider);
+      await doInject(prompt, provider, articleFile, urlFallback, textFallback);
     }
   } finally {
     injecting = false;
@@ -78,10 +90,45 @@ browser.storage.onChanged.addListener((changes, areaName) => {
 // Also listen for direct messages
 browser.runtime.onMessage.addListener((message) => {
   if (message.type !== "do-inject") return;
-  return doInject(message.prompt, message.provider);
+  return doInject(
+    message.prompt,
+    message.provider,
+    message.articleFile || null,
+    message.urlFallback || null,
+    message.textFallback || null
+  );
 });
 
-async function doInject(prompt, provider) {
+/**
+ * Attempt to upload a file to the LLM via the provider's file input element.
+ * Returns true if upload succeeded, false if it failed.
+ */
+async function tryFileUpload(provider, articleFile) {
+  if (!provider.fileInputSelector) return false;
+
+  var fileInput = document.querySelector(provider.fileInputSelector);
+  if (!fileInput) return false;
+
+  try {
+    var file = new File([articleFile.content], articleFile.name, { type: "text/plain" });
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    fileInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Wait briefly for the UI to process the file
+    await sleep(500);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function doInject(prompt, provider, articleFile, urlFallback, textFallback) {
+  // Determine the best prompt to use for clipboard fallback
+  const clipboardPrompt = textFallback || urlFallback || prompt;
+
   try {
     const input = await waitForElement(provider.inputSelector, 10000);
     if (!input) {
@@ -98,7 +145,22 @@ async function doInject(prompt, provider) {
       return;
     }
 
-    await setInputValue(input, prompt);
+    // Determine which prompt to inject via the fallback chain:
+    // 1. If articleFile present → try file upload + use primary prompt
+    // 2. If file upload fails → use urlFallback (URL-only prompt)
+    // 3. If no urlFallback → use textFallback (paste text)
+    // 4. Otherwise → use the primary prompt as-is
+    let effectivePrompt = prompt;
+
+    if (articleFile) {
+      const uploaded = await tryFileUpload(provider, articleFile);
+      if (!uploaded) {
+        // File upload failed — fall through to URL or text fallback
+        effectivePrompt = urlFallback || textFallback || prompt;
+      }
+    }
+
+    await setInputValue(input, effectivePrompt);
 
     // Wait for the configured injection delay
     const settings = await browser.storage.sync.get(["injectionDelay", "autoSubmit"]);
@@ -124,9 +186,9 @@ async function doInject(prompt, provider) {
     browser.runtime.sendMessage({ type: "injection-success" });
 
   } catch (err) {
-    // Fallback: copy to clipboard
+    // Fallback: copy best available prompt to clipboard
     try {
-      await navigator.clipboard.writeText(prompt);
+      await navigator.clipboard.writeText(clipboardPrompt);
     } catch (_) {
       // clipboard may not be available
     }
