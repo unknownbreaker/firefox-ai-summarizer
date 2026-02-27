@@ -1,3 +1,10 @@
+## v0.3.2 (2026-02-26)
+### Bug Fixes
+- add fallback submit selectors for resilient LLM form submission (8fa4fdc)
+
+### Other Changes
+- chore: add /release slash command for Claude Code (bd3949e)
+
 ## v0.3.1 (2026-02-20)
 ### Bug Fixes
 - wait for submit button to be enabled before clicking (1843a46)
