@@ -5,6 +5,10 @@ const DEFAULT_PROVIDERS = {
     url: "https://chat.openai.com",
     inputSelector: "#prompt-textarea",
     submitSelector: "button[data-testid='send-button']",
+    submitFallbacks: [
+      "button[aria-label='Send prompt']",
+      "button[aria-label*='Send']"
+    ],
     fileInputSelector: "input[type='file']"
   },
   claude: {
@@ -13,6 +17,11 @@ const DEFAULT_PROVIDERS = {
     url: "https://claude.ai/new",
     inputSelector: "div.ProseMirror[contenteditable='true']",
     submitSelector: "button[aria-label='Send Message']",
+    submitFallbacks: [
+      "button[aria-label='Send message']",
+      "button[aria-label*='Send']",
+      "fieldset button[type='button']:not([disabled])"
+    ],
     fileInputSelector: "input[type='file']"
   }
 };

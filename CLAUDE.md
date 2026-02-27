@@ -81,12 +81,12 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 |------|-------|------|
 | `manifest.json` | 72 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
 | `background.js` | 244 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching |
-| `content/injector.js` | 222 | Runs on LLM pages in sidebar. Receives prompts, fills input, clicks submit |
+| `content/injector.js` | 358 | Runs on LLM pages in sidebar. Receives prompts, fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
-| `providers/providers.js` | 66 | Provider config (ChatGPT/Claude/custom). Load/save from `storage.sync`, merge overrides |
+| `providers/providers.js` | 77 | Provider config (ChatGPT/Claude/custom). Load/save from `storage.sync`, merge overrides |
 | `popup/popup.{html,js}` | 145 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link |
 | `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
@@ -118,7 +118,9 @@ Tests are manual HTML files opened in a browser (no CLI runner):
 - `test/prompt-builder.test.html`
 - `test/providers.test.html`
 
-## Provider Selectors (current as of v0.2.0)
+## Provider Selectors (current as of v0.3.2)
 
-- **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`, file=`input[type='file']`
-- **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`, file=`input[type='file']`
+Each provider has a primary `submitSelector` plus a `submitFallbacks` array. The injector tries them in order (primary → fallbacks → Enter key) so that UI changes on LLM sites don't silently break submission.
+
+- **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`, fallbacks=[`button[aria-label='Send prompt']`, `button[aria-label*='Send']`], file=`input[type='file']`
+- **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`, fallbacks=[`button[aria-label='Send message']`, `button[aria-label*='Send']`, `fieldset button[type='button']:not([disabled])`], file=`input[type='file']`

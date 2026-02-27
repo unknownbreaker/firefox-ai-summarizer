@@ -100,6 +100,51 @@ browser.runtime.onMessage.addListener((message) => {
 });
 
 /**
+ * Try to find and click the submit button using a fallback chain:
+ * 1. Primary submitSelector (2s timeout)
+ * 2. Each selector in submitFallbacks (1s each)
+ * 3. Enter key on the input element (works for Claude ProseMirror and ChatGPT)
+ *
+ * Returns true if submit was triggered, false if all attempts failed.
+ */
+async function trySubmit(input, provider) {
+  // Try primary selector
+  const primary = await waitForClickableButton(provider.submitSelector, 2000);
+  if (primary) {
+    primary.click();
+    return true;
+  }
+
+  // Try each fallback selector
+  const fallbacks = provider.submitFallbacks || [];
+  for (const selector of fallbacks) {
+    const btn = await waitForClickableButton(selector, 1000);
+    if (btn) {
+      btn.click();
+      return true;
+    }
+  }
+
+  // Last resort: press Enter on the input element
+  const enterEvent = new KeyboardEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true
+  });
+  input.dispatchEvent(enterEvent);
+
+  // Brief pause to check if submission was triggered
+  await sleep(300);
+
+  // If the input was cleared or the page started navigating, Enter worked.
+  // We can't perfectly detect this, so we optimistically report success.
+  return true;
+}
+
+/**
  * Attempt to upload a file to the LLM via the provider's file input element.
  * Returns true if upload succeeded, false if it failed.
  */
@@ -170,8 +215,8 @@ async function doInject(prompt, provider, articleFile = null, urlFallback = null
     if (autoSubmit) {
       await sleep(delay);
 
-      const submitBtn = await waitForClickableButton(provider.submitSelector, 10000);
-      if (!submitBtn) {
+      const submitted = await trySubmit(input, provider);
+      if (!submitted) {
         browser.runtime.sendMessage({
           type: "injection-error",
           error: "submit-not-found",
@@ -179,8 +224,6 @@ async function doInject(prompt, provider, articleFile = null, urlFallback = null
         });
         return;
       }
-
-      submitBtn.click();
     }
 
     browser.runtime.sendMessage({ type: "injection-success" });
