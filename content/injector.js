@@ -326,12 +326,42 @@ function setInputValue(element, value) {
       element.value = value;
     }
   } else if (element.getAttribute("contenteditable")) {
-    // ContentEditable div (e.g., Claude's ProseMirror editor)
+    // ContentEditable div (e.g., Claude's ProseMirror editor).
+    //
+    // Do NOT clear with `innerHTML = ""`. ProseMirror maintains its own
+    // document model plus a DOM selection; wiping innerHTML out-of-band
+    // destroys the selection, so the following execCommand("insertText")
+    // has no caret to insert at and intermittently returns false — leaving
+    // the editor empty (observed after a file attach, where ProseMirror's
+    // focus/selection state is already churning).
+    //
+    // Instead, select any existing content so insertText *replaces* it
+    // (keeping a valid selection), then fall back to a synthetic paste —
+    // which ProseMirror also honors via clipboardData — if the insert
+    // didn't land.
     element.focus();
-    element.innerHTML = "";
 
-    // Use document.execCommand for contenteditable to trigger proper events
-    document.execCommand("insertText", false, value);
+    const selectContents = () => {
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection.addRange(range);
+    };
+
+    selectContents();
+    const inserted = document.execCommand("insertText", false, value);
+
+    if (!inserted || element.textContent.trim() === "") {
+      selectContents();
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", value);
+      element.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dataTransfer,
+        bubbles: true,
+        cancelable: true
+      }));
+    }
   }
 
   // Dispatch events for framework reactivity

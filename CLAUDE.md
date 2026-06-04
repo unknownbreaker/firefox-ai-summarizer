@@ -55,6 +55,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 - **`sendResponse` is deprecated** — Use `return Promise.resolve(value)` from listeners.
 - **`storage.onChanged` fires in ALL extension contexts** — background, content scripts, popups, sidebar. Useful as a cross-context event bus.
 - **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
+- **Never clear Claude's ProseMirror editor with `innerHTML = ""`** — ProseMirror keeps its own document model plus a DOM selection. Wiping innerHTML out-of-band destroys the selection, so `execCommand("insertText")` has no caret to insert at and intermittently returns `false`, leaving the editor empty — the prompt silently vanishes (especially after a file attach, when ProseMirror's focus/selection is already churning, which is why text-only Claude worked but page-upload didn't). In `setInputValue` (injector.js), select existing content so `insertText` *replaces* it, with a synthetic `paste` event (via `clipboardData`) as a verified fallback. ChatGPT uses the native textarea value setter so it's unaffected.
 - **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only.
 
 ## Design Decisions
