@@ -2,17 +2,23 @@
 set -euo pipefail
 
 DRY_RUN=false
+BUMP_OVERRIDE=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
+    --patch) BUMP_OVERRIDE="patch" ;;
+    --minor) BUMP_OVERRIDE="minor" ;;
+    --major) BUMP_OVERRIDE="major" ;;
     -h|--help)
-      echo "Usage: ./release.sh [--dry-run]"
-      echo "  --dry-run  Show what would happen without making changes"
+      echo "Usage: ./release.sh [--dry-run] [--patch|--minor|--major]"
+      echo "  --dry-run            Show what would happen without making changes"
+      echo "  --patch|--minor|--major"
+      echo "                       Force the bump type, overriding conventional-commit detection"
       exit 0
       ;;
     *)
       echo "Unknown argument: $arg"
-      echo "Usage: ./release.sh [--dry-run]"
+      echo "Usage: ./release.sh [--dry-run] [--patch|--minor|--major]"
       exit 1
       ;;
   esac
@@ -57,23 +63,29 @@ if [ "$COMMIT_COUNT" -eq 0 ]; then
   exit 0
 fi
 
-# Detect bump type from conventional commits
-BUMP="patch"
-while IFS= read -r hash; do
-  SUBJECT="$(git log -1 --format='%s' "$hash")"
-  BODY="$(git log -1 --format='%b' "$hash")"
+# Determine bump type: explicit override wins over conventional-commit detection
+if [ -n "$BUMP_OVERRIDE" ]; then
+  BUMP="$BUMP_OVERRIDE"
+  echo "Bump type forced via flag: $BUMP"
+else
+  # Detect bump type from conventional commits
+  BUMP="patch"
+  while IFS= read -r hash; do
+    SUBJECT="$(git log -1 --format='%s' "$hash")"
+    BODY="$(git log -1 --format='%b' "$hash")"
 
-  if echo "$BODY" | grep -q "BREAKING CHANGE"; then
-    BUMP="major"
-    break
-  fi
-
-  if echo "$SUBJECT" | grep -q "^feat"; then
-    if [ "$BUMP" != "major" ]; then
-      BUMP="minor"
+    if echo "$BODY" | grep -q "BREAKING CHANGE"; then
+      BUMP="major"
+      break
     fi
-  fi
-done < <(git rev-list "$COMMIT_RANGE")
+
+    if echo "$SUBJECT" | grep -q "^feat"; then
+      if [ "$BUMP" != "major" ]; then
+        BUMP="minor"
+      fi
+    fi
+  done < <(git rev-list "$COMMIT_RANGE")
+fi
 
 # Read current version and compute next
 CURRENT_VERSION="$(jq -r '.version' manifest.json)"
