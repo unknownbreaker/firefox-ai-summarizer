@@ -2,3 +2,4 @@ web-ext-artifacts/
 generate_icons.py
 .claude/*
 !.claude/commands/
+memory/
