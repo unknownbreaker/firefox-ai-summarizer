@@ -63,6 +63,15 @@
         "content/injector.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://gemini.google.com/*"
+      ],
+      "js": [
+        "content/injector.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "icons": {

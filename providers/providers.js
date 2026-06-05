@@ -1,15 +1,24 @@
+// Order reflects display/preference priority: Gemini, Claude, ChatGPT.
 const DEFAULT_PROVIDERS = {
-  chatgpt: {
-    id: "chatgpt",
-    name: "ChatGPT",
-    url: "https://chat.openai.com",
-    inputSelector: "#prompt-textarea",
-    submitSelector: "button[data-testid='send-button']",
+  gemini: {
+    id: "gemini",
+    name: "Gemini",
+    url: "https://gemini.google.com/app",
+    inputSelector: "div.ql-editor[contenteditable='true']",
+    submitSelector: "button[aria-label='Send message']",
     submitFallbacks: [
-      "button[aria-label='Send prompt']",
-      "button[aria-label*='Send']"
+      "button[aria-label*='Send']",
+      "button[mat-icon-button][aria-label*='Send']"
     ],
-    fileInputSelector: "input[type='file']"
+    fileInputSelector: "input[type='file']",
+    // Gemini's file <input> is gated behind the "Upload & tools" menu and is
+    // never present in the DOM, so the standard input-population upload can't
+    // work. Instead attach the article by simulating a drag-and-drop onto the
+    // composer (fileUploadMethod: "drop"), which Gemini accepts. If the drop
+    // is rejected, fall back to pasting the article text rather than a
+    // URL-only prompt (Gemini browses URLs unreliably). See injector.js.
+    fileUploadMethod: "drop",
+    fileUploadFallback: "text"
   },
   claude: {
     id: "claude",
@@ -21,6 +30,18 @@ const DEFAULT_PROVIDERS = {
       "button[aria-label='Send message']",
       "button[aria-label*='Send']",
       "fieldset button[type='button']:not([disabled])"
+    ],
+    fileInputSelector: "input[type='file']"
+  },
+  chatgpt: {
+    id: "chatgpt",
+    name: "ChatGPT",
+    url: "https://chat.openai.com",
+    inputSelector: "#prompt-textarea",
+    submitSelector: "button[data-testid='send-button']",
+    submitFallbacks: [
+      "button[aria-label='Send prompt']",
+      "button[aria-label*='Send']"
     ],
     fileInputSelector: "input[type='file']"
   }
@@ -37,7 +58,7 @@ const CUSTOM_PROVIDER_TEMPLATE = {
 
 /**
  * Load the active provider config from storage.
- * Falls back to chatgpt if nothing is stored.
+ * Falls back to gemini if nothing is stored.
  * Merges any user selector overrides on top of defaults.
  */
 async function getActiveProvider() {
@@ -47,7 +68,7 @@ async function getActiveProvider() {
     "customProvider"
   ]);
 
-  const providerId = stored.activeProviderId || "chatgpt";
+  const providerId = stored.activeProviderId || "gemini";
 
   if (providerId === "custom") {
     const custom = stored.customProvider || CUSTOM_PROVIDER_TEMPLATE;

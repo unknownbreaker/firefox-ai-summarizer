@@ -29,11 +29,11 @@ async function runTests() {
   const out = document.getElementById("output");
   function log(msg) { out.textContent += msg + "\n"; }
 
-  // Test 1: Default provider is chatgpt
+  // Test 1: Default provider is gemini
   let result = await getActiveProvider();
   log("Test 1 - Default provider:");
   log(JSON.stringify(result, null, 2));
-  log(result.provider.id === "chatgpt" ? "PASS" : "FAIL");
+  log(result.provider.id === "gemini" ? "PASS" : "FAIL");
 
   // Test 2: Switch to claude
   await setActiveProvider("claude");
@@ -94,6 +94,21 @@ async function runTests() {
   result = await getActiveProvider();
   log("\nTest 8 - Custom provider fileInputSelector:");
   log(result.provider.fileInputSelector === "input[type=file]" ? "PASS" : "FAIL");
+
+  // Test 9: Switch to gemini returns the gemini config
+  await setActiveProvider("gemini");
+  result = await getActiveProvider();
+  log("\nTest 9 - Gemini provider:");
+  log(JSON.stringify(result, null, 2));
+  log(result.provider.id === "gemini" && result.error === null ? "PASS" : "FAIL");
+
+  // Test 10: Gemini prefers text fallback when file upload fails
+  log("\nTest 10 - Gemini fileUploadFallback === 'text':");
+  log(result.provider.fileUploadFallback === "text" ? "PASS" : "FAIL");
+
+  // Test 11: Gemini attaches files via drag-and-drop (input is menu-gated)
+  log("\nTest 11 - Gemini fileUploadMethod === 'drop':");
+  log(result.provider.fileUploadMethod === "drop" ? "PASS" : "FAIL");
 }
 runTests();
 </script>

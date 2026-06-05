@@ -6,7 +6,7 @@ const presetSelect = document.getElementById("preset-select");
 async function init() {
   // Load active provider
   const stored = await browser.storage.sync.get(["activeProviderId"]);
-  providerSelect.value = stored.activeProviderId || "chatgpt";
+  providerSelect.value = stored.activeProviderId || "gemini";
 
   // Load presets
   const presets = await getPresets();

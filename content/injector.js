@@ -145,10 +145,23 @@ async function trySubmit(input, provider) {
 }
 
 /**
- * Attempt to upload a file to the LLM via the provider's file input element.
- * Returns true if upload succeeded, false if it failed.
+ * Attempt to attach the article as a file to the LLM.
+ *
+ * Two strategies, chosen per-provider:
+ *   - "drop" (provider.fileUploadMethod): simulate a drag-and-drop onto the
+ *     composer. Used when the file <input> is menu-gated and never in the DOM
+ *     (e.g. Gemini), but the page accepts dropped files.
+ *   - default: populate the provider's file <input> via DataTransfer.
+ *
+ * `dropTarget` is the already-resolved input element, reused as the drop zone.
+ * Returns true only if the attachment is verified, so a rejected attempt falls
+ * through to the prompt fallback chain in doInject.
  */
-async function tryFileUpload(provider, articleFile) {
+async function tryFileUpload(provider, articleFile, dropTarget) {
+  if (provider.fileUploadMethod === "drop") {
+    return tryFileDrop(articleFile, provider.inputSelector, dropTarget);
+  }
+
   if (!provider.fileInputSelector) return false;
 
   const fileInput = document.querySelector(provider.fileInputSelector);
@@ -167,6 +180,86 @@ async function tryFileUpload(provider, articleFile) {
     return true;
   } catch (e) {
     return false;
+  }
+}
+
+/**
+ * Attach a file by simulating a drag-and-drop onto the composer.
+ *
+ * Verifies the attachment landed before reporting success: polls for the file
+ * name appearing in the DOM. The name isn't present anywhere before the drop,
+ * so its appearance signals a real attachment chip — a class-agnostic check
+ * that survives provider UI churn. If the drop is silently rejected, this
+ * returns false and doInject falls back to pasting the article text, avoiding
+ * a "summarize the attached file" prompt with no file attached.
+ */
+async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
+  const landed = () => document.body.textContent.includes(articleFile.name);
+
+  // Retry, re-querying the live editor each attempt. On a fresh sidebar load
+  // (newChat → setPanel) the ql-editor element can exist before Gemini's drop
+  // handler is wired, and Angular may replace the node we first captured. A
+  // single drop into that not-yet-ready state silently attaches nothing. So we
+  // re-resolve the target and re-dispatch until a chip appears or we time out,
+  // then doInject falls back to pasting text. (When the sidebar is already
+  // open, the very first attempt succeeds.)
+  const maxAttempts = 10;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (landed()) return true;
+
+    const target = (dropSelector && document.querySelector(dropSelector)) || fallbackTarget;
+    if (target) {
+      try {
+        dispatchPageRealmDrop(target, articleFile);
+      } catch (e) {
+        // Page realm not ready yet during a fresh load — let the loop retry.
+      }
+    }
+
+    if (await waitForCondition(landed, 1000)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Dispatch a synthetic file drop that the PAGE can actually read.
+ *
+ * Firefox runs content scripts in an isolated sandbox, separated from the page
+ * by Xray wrappers. A File/DataTransfer built in the sandbox is invisible to
+ * the page when its drop handler reads `event.dataTransfer.files` — which is
+ * why the same drop attaches a file from the DevTools console (page realm) but
+ * silently nothing from a content script. (Note the asymmetry: assigning to a
+ * real element's `.files`, as tryFileUpload does, crosses the boundary fine;
+ * reading files off a sandbox-built event does not.)
+ *
+ * The fix: build the File, DataTransfer, and DragEvent with the PAGE's own
+ * constructors via `window.wrappedJSObject`, copying our plain data into the
+ * page realm with `cloneInto`. `wrapReflectors: true` lets the cloned event
+ * init carry the (native) DataTransfer reference. The page then sees a
+ * same-realm File and accepts the drop. No <script> injection, so the page's
+ * CSP doesn't apply. Firefox-only — which is fine, this is a Firefox extension.
+ */
+function dispatchPageRealmDrop(target, articleFile) {
+  const pageWindow = window.wrappedJSObject;
+
+  const file = new pageWindow.File(
+    cloneInto([articleFile.content], window),
+    articleFile.name,
+    cloneInto({ type: "text/plain" }, window)
+  );
+
+  const dataTransfer = new pageWindow.DataTransfer();
+  dataTransfer.items.add(file);
+
+  const init = cloneInto(
+    { bubbles: true, cancelable: true, composed: true, dataTransfer },
+    window,
+    { wrapReflectors: true }
+  );
+
+  for (const type of ["dragenter", "dragover", "drop"]) {
+    target.dispatchEvent(new pageWindow.DragEvent(type, init));
   }
 }
 
@@ -198,10 +291,14 @@ async function doInject(prompt, provider, articleFile = null, urlFallback = null
     let effectivePrompt = prompt;
 
     if (articleFile) {
-      const uploaded = await tryFileUpload(provider, articleFile);
+      const uploaded = await tryFileUpload(provider, articleFile, input);
       if (!uploaded) {
-        // File upload failed — fall through to URL or text fallback
-        effectivePrompt = urlFallback || textFallback || prompt;
+        // File upload failed — fall through to the next-best prompt. Most
+        // providers prefer a URL-only prompt, but some (e.g. Gemini, which
+        // browses URLs unreliably) prefer pasting the article text.
+        effectivePrompt = provider.fileUploadFallback === "text"
+          ? (textFallback || urlFallback || prompt)
+          : (urlFallback || textFallback || prompt);
       }
     }
 
@@ -381,6 +478,33 @@ function isLoginPage() {
   if (passwordFields.length > 0) return true;
 
   return false;
+}
+
+/**
+ * Resolve true as soon as `predicate()` returns truthy, or false on timeout.
+ * Polls because the change we're waiting for (e.g. an attachment chip) is
+ * driven by the provider's framework, not by a single observable DOM event.
+ */
+function waitForCondition(predicate, timeoutMs) {
+  return new Promise((resolve) => {
+    if (predicate()) {
+      resolve(true);
+      return;
+    }
+
+    const pollInterval = 100;
+    const timer = setInterval(() => {
+      if (predicate()) {
+        clearInterval(timer);
+        resolve(true);
+      }
+    }, pollInterval);
+
+    setTimeout(() => {
+      clearInterval(timer);
+      resolve(false);
+    }, timeoutMs);
+  });
 }
 
 function sleep(ms) {

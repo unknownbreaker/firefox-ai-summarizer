@@ -57,6 +57,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 - **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
 - **Never clear Claude's ProseMirror editor with `innerHTML = ""`** — ProseMirror keeps its own document model plus a DOM selection. Wiping innerHTML out-of-band destroys the selection, so `execCommand("insertText")` has no caret to insert at and intermittently returns `false`, leaving the editor empty — the prompt silently vanishes (especially after a file attach, when ProseMirror's focus/selection is already churning, which is why text-only Claude worked but page-upload didn't). In `setInputValue` (injector.js), select existing content so `insertText` *replaces* it, with a synthetic `paste` event (via `clipboardData`) as a verified fallback. ChatGPT uses the native textarea value setter so it's unaffected.
 - **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only.
+- **Synthetic file drops must be built in the PAGE realm, not the content-script sandbox** — Firefox content scripts run in an isolated sandbox behind Xray wrappers. A `File`/`DataTransfer` constructed in the sandbox is invisible when the page's drop handler reads `event.dataTransfer.files` — the drop fires but attaches *nothing*, with no error. (Symptom: works from the DevTools console, which runs in the page realm, but silently no-ops from the content script.) Asymmetry worth remembering: assigning to a real element's `.files` (as `tryFileUpload` does for ChatGPT/Claude) crosses the boundary fine; it's only *reading* files off a sandbox-built event that fails. Fix in `dispatchPageRealmDrop` (injector.js): build `File`/`DataTransfer`/`DragEvent` via `window.wrappedJSObject` (the page's real constructors) and `cloneInto` plain data into the page realm (`wrapReflectors: true` so the cloned event init can carry the native `DataTransfer`). This is how Gemini's `fileUploadMethod: "drop"` actually attaches.
 
 ## Design Decisions
 
@@ -82,12 +83,12 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 |------|-------|------|
 | `manifest.json` | 72 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
 | `background.js` | 244 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching |
-| `content/injector.js` | 358 | Runs on LLM pages in sidebar. Receives prompts, fills input, clicks submit |
+| `content/injector.js` | 498 | Runs on LLM pages in sidebar. Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
-| `providers/providers.js` | 77 | Provider config (ChatGPT/Claude/custom). Load/save from `storage.sync`, merge overrides |
+| `providers/providers.js` | 98 | Provider config (Gemini/Claude/ChatGPT/custom). Load/save from `storage.sync`, merge overrides |
 | `popup/popup.{html,js}` | 145 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link |
 | `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
@@ -97,7 +98,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 
 | Key | Area | Purpose |
 |-----|------|---------|
-| `activeProviderId` | sync | `"chatgpt"` / `"claude"` / `"custom"` |
+| `activeProviderId` | sync | `"gemini"` (default) / `"claude"` / `"chatgpt"` / `"custom"` |
 | `providerOverrides` | sync | `{ [id]: { inputSelector?, submitSelector?, fileInputSelector? } }` |
 | `customProvider` | sync | `{ id, name, url, inputSelector, submitSelector, fileInputSelector }` |
 | `customPresets` | sync | `[{ id, name, instruction }]` |
@@ -125,3 +126,10 @@ Each provider has a primary `submitSelector` plus a `submitFallbacks` array. The
 
 - **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`, fallbacks=[`button[aria-label='Send prompt']`, `button[aria-label*='Send']`], file=`input[type='file']`
 - **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`, fallbacks=[`button[aria-label='Send message']`, `button[aria-label*='Send']`, `fieldset button[type='button']:not([disabled])`], file=`input[type='file']`
+- **Gemini**: input=`div.ql-editor[contenteditable='true']` (Quill editor), submit=`button[aria-label='Send message']`, fallbacks=[`button[aria-label*='Send']`, `button[mat-icon-button][aria-label*='Send']`], file=`input[type='file']`
+
+`fileUploadMethod` (provider field, default input-population): set to `"drop"` to attach the article by simulating a drag-and-drop onto the composer instead of populating a file `<input>`. Gemini uses `"drop"` because its file `<input>` is gated behind the "Upload & tools" menu and is **never** in the DOM (so `querySelector` finds nothing — confirmed: 0 file inputs at rest *and* with the menu open). The drop path (`tryFileDrop` → `dispatchPageRealmDrop` in injector.js) dispatches `dragenter`/`dragover`/`drop` with a **page-realm** `DataTransfer` (see the Xray gotcha above — a sandbox-built one attaches nothing), then **verifies** the attachment by polling for the file name in the DOM — a class-agnostic check. If verification fails, it returns false and `doInject` falls through to the prompt fallback chain (avoids a "summarize the attached file" prompt with no file).
+
+**Cold-start race:** on a fresh sidebar load (`newChat` → `setPanel`), the `ql-editor` element can exist before Gemini's drop handler is wired, and Angular may replace the node first captured — so a single drop silently attaches nothing (symptom: file attaches when the sidebar is already open, but a closed→reopen run only pastes text). `tryFileDrop` therefore **retries** (re-querying the live editor each attempt) until a chip appears or it times out, then falls back to text.
+
+`fileUploadFallback` (provider field, default URL-first): set to `"text"` to make `doInject` prefer pasting article text over a URL-only prompt when file upload fails. Gemini uses `"text"` because it browses URLs unreliably, so a rejected drop should fall back to pasted text rather than a bare URL.

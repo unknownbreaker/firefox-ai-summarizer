@@ -33,7 +33,7 @@ async function loadSettings() {
   ]);
 
   // Provider
-  const providerId = stored.activeProviderId || "chatgpt";
+  const providerId = stored.activeProviderId || "gemini";
   const radio = document.querySelector(`input[name="provider"][value="${providerId}"]`);
   if (radio) radio.checked = true;
   customFields.classList.toggle("hidden", providerId !== "custom");
