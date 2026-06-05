@@ -109,6 +109,11 @@ async function runTests() {
   // Test 11: Gemini attaches files via drag-and-drop (input is menu-gated)
   log("\nTest 11 - Gemini fileUploadMethod === 'drop':");
   log(result.provider.fileUploadMethod === "drop" ? "PASS" : "FAIL");
+
+  // Test 12: Gemini forces a fresh chat by clicking "New chat" (its /app URL
+  // restores the last conversation, so a cache-bust reload isn't enough).
+  log("\nTest 12 - Gemini newChatSelector is set:");
+  log(result.provider.newChatSelector === "button[aria-label='New chat' i]" ? "PASS" : "FAIL");
 }
 runTests();
 </script>

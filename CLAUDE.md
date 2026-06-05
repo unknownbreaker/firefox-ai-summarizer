@@ -20,10 +20,12 @@ User action (popup button / context menu / keyboard shortcut)
         ├─ [if extraction failed]
         │   builds URL-only prompt (original behavior)
         │
-        ├─ stores { prompt, provider, articleFile, urlFallback, textFallback }
-        │   in memory (pendingPromptData) + storage.local
+        ├─ holds { prompt, provider, articleFile, urlFallback, textFallback }
+        │   in memory (pendingPromptData) for the injector-ready handshake
         │
-        ├─ [if newChat] sidebarAction.setPanel(providerUrl + cacheBust)
+        ├─ [if newChat]  sidebarAction.setPanel(providerUrl + cacheBust)
+        │                (memory-only delivery — NO storage write, see Invariant 3)
+        ├─ [else]        storage.local.set(pendingPrompt)  → storage.onChanged
         │
         ▼
   content/injector.js (runs on LLM domain in sidebar)
@@ -44,7 +46,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 
 1. **`sidebarAction.open()` before any `await`** — Firefox user gesture context is consumed by the first `await`. In popup click handlers and context menu handlers, call `sidebarAction.open()` synchronously first.
 2. **Non-async `onMessage` handler** — The `browser.runtime.onMessage` listener in background.js must NOT be `async`. An async handler returns a Promise for ALL messages (including unhandled ones), blocking other listeners. Only return a Promise for handled message types.
-3. **Dual prompt storage** — Prompts are stored in both `pendingPromptData` (in-memory variable in background.js) AND `storage.local`. The in-memory path handles the "injector-ready" handshake (avoids timing races). The storage path handles "sidebar already open" via `storage.onChanged`.
+3. **Prompt delivery is split by path, NOT always dual** — The pending prompt is always held in `pendingPromptData` (in-memory in background.js) for the "injector-ready" handshake. **`newChat` reloads deliver via memory ONLY** — `injectPrompt` does not write `storage.local` on this path. Writing storage there would fire `storage.onChanged` in the *outgoing* injector (when the sidebar was already open), which consumes the prompt and injects it into the page being reloaded away — the prompt vanishes in the navigation and the fresh chat gets nothing (symptom: summarize "does nothing" intermittently when the sidebar is already open; the `unloading` guard can't catch it because `onChanged` fires before `setPanel` triggers `beforeunload`). Only the **no-reload path (`newChat=false`)** writes `storage.local`, so `storage.onChanged` reaches the already-open injector. All current user-facing triggers (popup, context menu, selection) pass `newChat: true`.
 4. **`beforeunload` guard in injector** — Prevents a dying injector from consuming a prompt during provider-switch reloads.
 5. **DOM API for user content, never innerHTML** — Extension contexts have elevated privileges; innerHTML with user data = XSS.
 6. **Cache-bust for setPanel()** — `setPanel()` with the same URL is a no-op. Append `?_t=Date.now()` to force reload.
@@ -126,7 +128,9 @@ Each provider has a primary `submitSelector` plus a `submitFallbacks` array. The
 
 - **ChatGPT**: input=`#prompt-textarea`, submit=`button[data-testid='send-button']`, fallbacks=[`button[aria-label='Send prompt']`, `button[aria-label*='Send']`], file=`input[type='file']`
 - **Claude**: input=`div.ProseMirror[contenteditable='true']`, submit=`button[aria-label='Send Message']`, fallbacks=[`button[aria-label='Send message']`, `button[aria-label*='Send']`, `fieldset button[type='button']:not([disabled])`], file=`input[type='file']`
-- **Gemini**: input=`div.ql-editor[contenteditable='true']` (Quill editor), submit=`button[aria-label='Send message']`, fallbacks=[`button[aria-label*='Send']`, `button[mat-icon-button][aria-label*='Send']`], file=`input[type='file']`
+- **Gemini**: input=`div.ql-editor[contenteditable='true']` (Quill editor), submit=`button[aria-label='Send message']`, fallbacks=[`button[aria-label*='Send']`, `button[mat-icon-button][aria-label*='Send']`], file=`input[type='file']`, newChat=`button[aria-label='New chat' i]`
+
+`newChatSelector` (provider field, default none): the injector clicks this **before** injecting to force a fresh conversation. Gemini needs it because `gemini.google.com/app` is an Angular SPA that **restores the last active conversation on load**, ignoring the `setPanel` cache-bust (unlike Claude's server-side `/new` route) — so without it the summary appends to whatever conversation Gemini restored. `startNewChat` (injector.js) waits for the button (`waitForClickableButton`, 5s), clicks it, and settles 500ms before the file-drop/fill flow runs against the fresh composer. The selector is scoped to `<button>` (not the `<a>` variants, which can trigger a full navigation and reload the injector) and uses the case-insensitive `i` flag (the button's label is "New Chat", the anchors' is "New chat"). No-op for providers without the field, and idempotent if already on a fresh chat. Could be surfaced as a `providerOverrides` key later (settings UI doesn't expose it yet).
 
 `fileUploadMethod` (provider field, default input-population): set to `"drop"` to attach the article by simulating a drag-and-drop onto the composer instead of populating a file `<input>`. Gemini uses `"drop"` because its file `<input>` is gated behind the "Upload & tools" menu and is **never** in the DOM (so `querySelector` finds nothing — confirmed: 0 file inputs at rest *and* with the menu open). The drop path (`tryFileDrop` → `dispatchPageRealmDrop` in injector.js) dispatches `dragenter`/`dragover`/`drop` with a **page-realm** `DataTransfer` (see the Xray gotcha above — a sandbox-built one attaches nothing), then **verifies** the attachment by polling for the file name in the DOM — a class-agnostic check. If verification fails, it returns false and `doInject` falls through to the prompt fallback chain (avoids a "summarize the attached file" prompt with no file).
 

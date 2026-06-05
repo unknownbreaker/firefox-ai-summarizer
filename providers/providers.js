@@ -11,6 +11,15 @@ const DEFAULT_PROVIDERS = {
       "button[mat-icon-button][aria-label*='Send']"
     ],
     fileInputSelector: "input[type='file']",
+    // Gemini's /app URL can't force a fresh conversation: the Angular SPA
+    // restores the last active conversation on load, ignoring the setPanel
+    // cache-bust (unlike Claude's server-side /new route). So the injector
+    // clicks this "New chat" button before injecting to start fresh. The `i`
+    // flag is a case-insensitive match (the button's label is "New Chat" but
+    // the anchors are "New chat"); scoped to <button> to avoid the <a> variant,
+    // which can trigger a full navigation and reload the injector. See
+    // startNewChat() in injector.js.
+    newChatSelector: "button[aria-label='New chat' i]",
     // Gemini's file <input> is gated behind the "Upload & tools" menu and is
     // never present in the DOM, so the standard input-population upload can't
     // work. Instead attach the article by simulating a drag-and-drop onto the

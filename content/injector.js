@@ -263,11 +263,45 @@ function dispatchPageRealmDrop(target, articleFile) {
   }
 }
 
+/**
+ * Start a fresh conversation before injecting, for providers whose URL can't
+ * force a new chat.
+ *
+ * Gemini's /app is an Angular SPA that restores the last active conversation on
+ * load, ignoring the setPanel cache-bust — so a "new chat" reload still lands
+ * in the previous conversation and the summary appends to it. Clicking the
+ * provider's "New chat" control resets to an empty composer regardless of what
+ * was restored. The click is client-side routing (no full reload), so this
+ * injector stays alive and the downstream file-drop/fill flow runs against the
+ * fresh composer.
+ *
+ * No-op for providers without `newChatSelector` (e.g. Claude, whose /new URL
+ * already yields a fresh chat). Safe to call even when already on a new chat —
+ * the button is either absent/disabled (skipped) or clicking it is idempotent.
+ */
+async function startNewChat(provider) {
+  if (!provider.newChatSelector) return;
+
+  const button = await waitForClickableButton(provider.newChatSelector, 5000);
+  if (!button) return; // already fresh, or button not present — proceed anyway
+
+  button.click();
+
+  // Let the SPA tear down the restored conversation and present an empty
+  // composer before we attach the file / fill the input. The downstream
+  // waitForElement + tryFileDrop retry loop tolerate in-flight DOM, but this
+  // brief settle avoids racing the outgoing conversation's composer.
+  await sleep(500);
+}
+
 async function doInject(prompt, provider, articleFile = null, urlFallback = null, textFallback = null) {
   // Determine the best prompt to use for clipboard fallback
   const clipboardPrompt = textFallback || urlFallback || prompt;
 
   try {
+    // Force a fresh conversation first (Gemini restores the last one on load).
+    await startNewChat(provider);
+
     const input = await waitForElement(provider.inputSelector, 10000);
     if (!input) {
       throw new Error("input-not-found");

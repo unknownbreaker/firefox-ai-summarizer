@@ -43,11 +43,11 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
 browser.runtime.onMessage.addListener((message, sender) => {
   switch (message.type) {
     case "summarize-page":
-      return handleSummarizePage({ fromUserGesture: true });
+      return handleSummarizePage({ fromUserGesture: true, newChat: true });
     case "summarize-tabs":
-      return handleSummarizeTabs({ fromUserGesture: true });
+      return handleSummarizeTabs({ fromUserGesture: true, newChat: true });
     case "summarize-selection-from-popup": {
-      return getActiveTab().then(tab => handleSummarizeSelection(tab));
+      return getActiveTab().then(tab => handleSummarizeSelection(tab, { newChat: true }));
     }
     case "injection-error":
       // Don't clear pendingPromptData — the error may be from a dying injector
@@ -219,14 +219,19 @@ let pendingPromptData = null;
 /**
  * Deliver a prompt to the injector content script.
  *
- * Prompt is always stored in both memory and storage. Delivery paths:
- *   1. newChat — also calls setPanel() to reload the sidebar for a fresh
- *      conversation. The new injector picks up the prompt via "injector-ready"
- *      handshake (memory). If setPanel() doesn't reload, the running injector
- *      picks it up via storage.onChanged.
- *   2. Sidebar opening (first open) — injector sends "injector-ready", gets
- *      the prompt from memory (or storage fallback).
- *   3. Sidebar already open — storage.onChanged fires in the running injector.
+ * The prompt is always held in memory (pendingPromptData) for the
+ * "injector-ready" handshake. Delivery paths:
+ *   1. newChat — calls setPanel() with a cache-bust to reload the sidebar for a
+ *      fresh conversation. The freshly-loaded injector picks up the prompt from
+ *      memory via the "injector-ready" handshake. Storage is intentionally NOT
+ *      written here: a storage write fires storage.onChanged in the OUTGOING
+ *      injector (when the sidebar was already open), which would consume the
+ *      prompt and inject it into the page being reloaded away — losing it. The
+ *      cache-bust guarantees the reload, so the memory handshake is reliable.
+ *   2. Sidebar already open, no reload (newChat=false) — the prompt is written
+ *      to storage.local so storage.onChanged delivers it to the running
+ *      injector (also covers a first open: the injector's "injector-ready"
+ *      handshake reads memory, with a storage fallback).
  */
 async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, articleFile = null, urlFallback = null, textFallback = null } = {}) {
   const { provider, error } = await getActiveProvider();
@@ -241,16 +246,25 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, 
   // Hold in memory for the injector-ready handshake (new page loads)
   pendingPromptData = data;
 
-  // Write to storage for the storage.onChanged path (sidebar already open)
-  await browser.storage.local.set({ pendingPrompt: data });
-
   if (newChat) {
     // Force a fresh chat by reloading the sidebar panel. Append a cache-bust
     // parameter so Firefox treats it as a new URL even if the provider URL
     // was already set — setPanel() with the same URL doesn't trigger a reload.
+    // The freshly-loaded injector picks up the prompt from memory via the
+    // "injector-ready" handshake.
+    //
+    // Deliberately do NOT write storage.local here. A storage write fires
+    // storage.onChanged in the OUTGOING injector (when the sidebar was already
+    // open), which would consume the prompt and inject it into the page we're
+    // about to reload away — so the prompt vanishes in the navigation and the
+    // fresh chat gets nothing.
     const separator = provider.url.includes("?") ? "&" : "?";
     const freshUrl = provider.url + separator + "_t=" + Date.now();
     await browser.sidebarAction.setPanel({ panel: freshUrl });
+  } else {
+    // Sidebar already open with no reload — deliver to the running injector
+    // via storage.onChanged.
+    await browser.storage.local.set({ pendingPrompt: data });
   }
 
   if (!fromUserGesture) {
