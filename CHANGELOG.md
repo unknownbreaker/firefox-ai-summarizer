@@ -1,3 +1,14 @@
+## v0.4.0 (2026-06-04)
+### Features
+- add Gemini provider with file-attach via drag-drop (fa6e955)
+- add --patch/--minor/--major bump override flags to release.sh (d5db59b)
+
+### Bug Fixes
+- insert Claude prompt without clearing ProseMirror editor (09da351)
+
+### Documentation
+- add model selection feature design (93585aa)
+
 ## v0.3.2 (2026-02-26)
 ### Bug Fixes
 - add fallback submit selectors for resilient LLM form submission (8fa4fdc)
