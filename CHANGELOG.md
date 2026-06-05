@@ -1,3 +1,7 @@
+## v0.4.2 (2026-06-05)
+### Bug Fixes
+- wait for Gemini file upload to finish before submitting (98656e6)
+
 ## v0.4.1 (2026-06-05)
 ### Bug Fixes
 - always start a fresh provider chat when summarizing (f94e94f)
