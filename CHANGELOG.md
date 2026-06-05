@@ -1,3 +1,7 @@
+## v0.4.1 (2026-06-05)
+### Bug Fixes
+- always start a fresh provider chat when summarizing (f94e94f)
+
 ## v0.4.0 (2026-06-04)
 ### Features
 - add Gemini provider with file-attach via drag-drop (fa6e955)
