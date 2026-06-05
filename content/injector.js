@@ -192,6 +192,10 @@ async function tryFileUpload(provider, articleFile, dropTarget) {
  * that survives provider UI churn. If the drop is silently rejected, this
  * returns false and doInject falls back to pasting the article text, avoiding
  * a "summarize the attached file" prompt with no file attached.
+ *
+ * Once the chip lands, also waits for the upload to *finish*
+ * (`waitForUploadComplete`) before returning — the chip renders while the file
+ * is still uploading, and submitting in that window sends the prompt text alone.
  */
 async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
   const landed = () => document.body.textContent.includes(articleFile.name);
@@ -205,7 +209,10 @@ async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
   // open, the very first attempt succeeds.)
   const maxAttempts = 10;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (landed()) return true;
+    if (landed()) {
+      await waitForUploadComplete();
+      return true;
+    }
 
     const target = (dropSelector && document.querySelector(dropSelector)) || fallbackTarget;
     if (target) {
@@ -216,10 +223,52 @@ async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
       }
     }
 
-    if (await waitForCondition(landed, 1000)) return true;
+    if (await waitForCondition(landed, 1000)) {
+      await waitForUploadComplete();
+      return true;
+    }
   }
 
   return false;
+}
+
+/**
+ * Block until a just-dropped attachment finishes uploading.
+ *
+ * The chip renders (filename in the DOM) the instant the drop lands, but the
+ * file is still uploading: Gemini shows a spinner on the chip and only binds the
+ * attachment to the *next* send once it completes. Submitting during this window
+ * flushes the prompt text alone and leaves the half-uploaded chip pending in the
+ * composer — the summary goes out without the article, and a later manual click
+ * is needed to send the file. So `tryFileDrop` waits here before reporting
+ * success, ensuring doInject submits a composer that already holds a ready
+ * attachment.
+ *
+ * Detection uses Gemini's attachment-specific loading markers, confirmed against
+ * the live DOM: the chip's content span carries a `loading` class while the file
+ * uploads (`.gem-attachment-content.loading`), alongside a mat-spinner labelled
+ * "Loading attachment". Both clear once the file is ready. The `loading` class is
+ * the primary signal because it's locale-independent; the aria-label is a
+ * secondary catch. Crucially, both are attachment-scoped, so they do NOT collide
+ * with Gemini's unrelated sidenav spinner ("Loading Gems and Recent
+ * conversations", role="progressbar") that shows during a cold page load — a
+ * generic `[role="progressbar"]` check would have stalled on it.
+ *
+ * Bounded by timeouts: the chip can render a beat before its spinner mounts, so
+ * we first wait briefly for the indicator to appear; if it never does (instant
+ * upload, or a future reskin that renames both markers) we proceed immediately —
+ * degrading to the old behavior, never worse.
+ */
+async function waitForUploadComplete(timeoutMs = 10000) {
+  const uploading = () =>
+    document.querySelector(
+      '.gem-attachment-content.loading, [aria-label="Loading attachment" i]'
+    ) !== null;
+
+  const appeared = await waitForCondition(uploading, 2000);
+  if (!appeared) return;
+
+  await waitForCondition(() => !uploading(), timeoutMs);
 }
 
 /**
