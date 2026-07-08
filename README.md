@@ -6,6 +6,20 @@ Summarize web content in the Firefox sidebar using the LLM web UIs you already u
 - **No accounts, no servers.** Everything runs locally in your browser.
 - **No build step.** Plain JavaScript, Manifest V2.
 
+## Install
+
+**[⬇ Download the latest release (.xpi)](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi)**
+
+- Open the downloaded file with Firefox (or drag it onto a Firefox window) and confirm the install prompt.
+- Note: stock release Firefox requires signed extensions. For unsigned builds, use Firefox Developer Edition or Nightly with `xpinstall.signatures.required` set to `false`.
+- All versions: [Releases page](https://github.com/unknownbreaker/firefox-ai-summarizer/releases)
+
+**Temporary (development):**
+
+1. Open `about:debugging` → **This Firefox**
+2. Click **Load Temporary Add-on…**
+3. Select `manifest.json` from this project
+
 ## Features
 
 - **Summarize the current page** — extracts the article text (Mozilla Readability) and attaches it to the LLM as a file, so the model reads the real content, not a URL guess.
@@ -33,20 +47,6 @@ Summarize web content in the Firefox sidebar using the LLM web UIs you already u
 | Claude | `claude.ai/new` | |
 | ChatGPT | `chat.openai.com` | |
 | Custom | Any LLM web UI | Configure URL + CSS selectors in settings |
-
-## Installation
-
-**From a release (recommended):**
-
-- Download the latest `.xpi`: [ai-summarizer.xpi](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi)
-- Open it with Firefox (or drag it onto a Firefox window) and confirm the install prompt.
-- Note: stock release Firefox requires signed extensions. For unsigned builds, use Firefox Developer Edition or Nightly with `xpinstall.signatures.required` set to `false`.
-
-**Temporary (development):**
-
-1. Open `about:debugging` → **This Firefox**
-2. Click **Load Temporary Add-on…**
-3. Select `manifest.json` from this project
 
 ## Usage
 
