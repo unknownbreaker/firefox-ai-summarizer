@@ -6,6 +6,8 @@ Summarize web content in the Firefox sidebar using the LLM web UIs you already u
 - **No accounts, no servers.** Everything runs locally in your browser.
 - **No build step.** Plain JavaScript, Manifest V2.
 
+<img src="docs/screenshots/hero.png" alt="A webpage with the AI Summarizer sidebar open: the article is attached as a file and the AI returns a bulleted summary" width="100%">
+
 ## Install
 
 **[⬇ Download the latest release (.xpi)](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi)**
