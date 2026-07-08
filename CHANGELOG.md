@@ -1,3 +1,13 @@
+## v0.5.0 (2026-07-08)
+### Features
+- add install-latest-release button to the popup (b6cc9af)
+
+### Bug Fixes
+- remove the 80k char cap on extracted article text (81dccb1)
+
+### Other Changes
+- chore(release): also attach a stable-named ai-summarizer.xpi to releases (1494dcd)
+
 ## v0.4.3 (2026-07-08)
 ### Bug Fixes
 - gate injector to the sidebar panel and cut its CPU/memory overhead (0ccd130)
