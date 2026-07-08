@@ -57,6 +57,24 @@
       margin-top: 8px;
     }
     .settings-link:hover { text-decoration: underline; }
+    button.update {
+      display: block;
+      width: 100%;
+      padding: 6px 12px;
+      background: none;
+      color: #0060df;
+      border: 1px solid #0060df;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      text-align: center;
+    }
+    button.update:hover:not(:disabled) { background: #f0f6ff; }
+    button.update:disabled {
+      color: #999;
+      border-color: #ddd;
+      cursor: default;
+    }
   </style>
 </head>
 <body>
@@ -77,6 +95,10 @@
 
   <label for="preset-select">Summary Style</label>
   <select id="preset-select"></select>
+
+  <div class="divider"></div>
+
+  <button class="update" id="install-latest" disabled>Checking for updates…</button>
 
   <a href="#" class="settings-link" id="open-settings">Settings</a>
 
