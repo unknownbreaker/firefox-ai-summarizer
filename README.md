@@ -1,97 +1,110 @@
 # AI Summarizer — Firefox Extension
 
-A Firefox extension that summarizes web content using LLM web UIs (ChatGPT, Claude, or any custom provider) in the browser sidebar. No API keys required — it works by injecting prompts directly into the LLM chat interface you're already logged into.
+Summarize web content in the Firefox sidebar using the LLM web UIs you already use — Gemini, Claude, ChatGPT, or any custom provider.
+
+- **No API keys.** Uses your existing logged-in LLM sessions.
+- **No accounts, no servers.** Everything runs locally in your browser.
+- **No build step.** Plain JavaScript, Manifest V2.
 
 ## Features
 
-- **Page summarization** — Summarize the current page by its URL. The prompt instructs the LLM to read the URL content as if the full article text was pasted.
-- **Text selection summarization** — Highlight text on any page, right-click, and summarize just the selection.
-- **Multi-tab summarization** — Summarize all open tabs at once by sending their URLs to the LLM in a single prompt.
+- **Summarize the current page** — extracts the article text (Mozilla Readability) and attaches it to the LLM as a file, so the model reads the real content, not a URL guess.
+- **Summarize a text selection** — highlight, right-click, done.
+- **Summarize all open tabs** — every tab's article, extracted and bundled into one file.
+- **Smart fallbacks** — if extraction or file upload fails: URL prompt → pasted text → clipboard. Something always gets through.
+- **Prompt presets** — Concise, Detailed, Bullet Points, or your own custom instructions.
+- **One-click updates** — the popup checks GitHub for a newer release and offers to install it.
+
+## Screenshots
+
+### Toolbar popup
+
+<img src="docs/screenshots/popup.png" width="280" alt="Toolbar popup with summarize buttons, provider and style dropdowns, and update button">
+
+### Settings
+
+<img src="docs/screenshots/settings.png" width="620" alt="Settings page with provider selection, prompt presets, and general options">
 
 ## Supported Providers
 
-| Provider | URL |
-|----------|-----|
-| ChatGPT  | `https://chat.openai.com` |
-| Claude   | `https://claude.ai` |
-| Custom   | Any LLM web UI (configure URL and CSS selectors in settings) |
+| Provider | URL | Notes |
+|----------|-----|-------|
+| Gemini | `gemini.google.com/app` | Default. Attaches articles via simulated drag-and-drop |
+| Claude | `claude.ai/new` | |
+| ChatGPT | `chat.openai.com` | |
+| Custom | Any LLM web UI | Configure URL + CSS selectors in settings |
 
 ## Installation
 
-1. Open Firefox and navigate to `about:debugging`
-2. Click **"This Firefox"** in the left sidebar
-3. Click **"Load Temporary Add-on..."**
-4. Select the `manifest.json` file from this project directory
+**From a release (recommended):**
 
-The extension icon will appear in your toolbar.
+- Download the latest `.xpi`: [ai-summarizer.xpi](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi)
+- Open it with Firefox (or drag it onto a Firefox window) and confirm the install prompt.
+- Note: stock release Firefox requires signed extensions. For unsigned builds, use Firefox Developer Edition or Nightly with `xpinstall.signatures.required` set to `false`.
+
+**Temporary (development):**
+
+1. Open `about:debugging` → **This Firefox**
+2. Click **Load Temporary Add-on…**
+3. Select `manifest.json` from this project
 
 ## Usage
 
-### Summarize the current page
+**Current page:**
 
-1. Click the **AI Summarizer** toolbar icon
-2. Select a provider and summary style
-3. Click **"Summarize This Page"**
-4. The sidebar opens with the LLM web UI and the prompt is auto-injected
+- Click the toolbar icon → **Summarize This Page**, or
+- Right-click the page → **Summarize This Page**
 
-### Summarize selected text
+**Selected text:**
 
-**Option A — Right-click context menu:**
-1. Highlight text on any page
-2. Right-click and select **"Summarize Selection"**
+- Highlight text → right-click → **Summarize Selection**
 
-**Option B — Toolbar popup:**
-1. Highlight text on any page
-2. Click the toolbar icon
-3. Click **"Summarize Selection"** (if available)
+**All tabs:**
 
-### Summarize all open tabs
+- Click the toolbar icon → **Summarize All Tabs**
 
-1. Click the **AI Summarizer** toolbar icon
-2. Click **"Summarize All Tabs"**
-3. All non-internal tabs are sent to the LLM as a numbered URL list
+In every case the sidebar opens with your LLM, the content is attached, and the prompt auto-submits. You're logged in already, so the summary just appears.
 
 ## Settings
 
-Open settings via the **"Settings"** link in the toolbar popup, or through Firefox's extension preferences.
+Open via the **Settings** link in the popup, or Firefox's extension preferences.
 
-### Provider
-
-Choose between ChatGPT, Claude, or a custom provider. Custom providers require:
-- **URL** — The LLM web UI address
-- **Chat input CSS selector** — Selector for the text input element
-- **Submit button CSS selector** — Selector for the send button
-
-For built-in providers, you can override the default CSS selectors under **"Advanced: Override built-in selectors"** if the sites update their DOM.
-
-### Prompt Presets
-
-Three built-in presets:
-- **Concise** — Brief 2-3 sentence summary (default)
-- **Detailed** — Thorough summary covering all key points
-- **Bullet Points** — Concise bulleted list of key takeaways
-
-You can also add custom presets with your own instructions.
-
-### General
-
-- **Injection delay** — Milliseconds to wait before clicking submit after pasting the prompt (default: 500ms)
-- **Auto-submit** — Automatically click the send button after injecting the prompt (default: on)
-- **Character limit** — Maximum characters for selected text before truncation (default: 10,000)
+- **Provider** — Gemini (default), Claude, ChatGPT, or custom (URL + input/submit/file-input CSS selectors).
+- **Selector overrides** — fix built-in providers yourself if their DOM changes, no update needed.
+- **Prompt presets** — pick a default; add custom presets with your own instructions.
+- **Injection delay** — ms to wait before auto-submit (default 500).
+- **Auto-submit** — turn off to review prompts before sending.
+- **Selection character limit** — truncation point for selected-text prompts (default 10,000). Full-page article extraction is never truncated.
 
 ## How It Works
 
-The extension opens the LLM provider's web UI in a Firefox sidebar panel. When you trigger a summarization:
+1. **Background script** extracts the article from the active tab (Readability.js), builds the prompt, and opens the sidebar.
+2. **Sidebar** loads the LLM's real web UI directly via `sidebarAction.setPanel()` — no iframes.
+3. **Injector content script** (runs only in the sidebar) attaches the article as a file, fills the chat input, and clicks send.
+4. The LLM streams the summary in its own UI, in your own session.
 
-1. The **background script** builds a prompt (using the page URL, selected text, or list of tab URLs) and opens the sidebar
-2. The **sidebar** loads the LLM web UI (e.g., `chat.openai.com`) in an iframe
-3. A **content script (injector)** is injected into the LLM page, finds the chat input via CSS selector, pastes the prompt, and clicks submit
-4. The LLM generates the summary directly in its own UI
+If any step fails, the prompt falls back down the chain (file → URL → pasted text → clipboard) and you get a notification explaining what to do.
 
-If auto-injection fails, the prompt is copied to your clipboard so you can paste it manually.
+## Staying Updated
+
+- The popup checks the [latest GitHub release](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest) each time it opens (cached 15 min).
+- Newer version available → the **Install latest release** button activates; one click opens the new `.xpi`.
+- Already current → the button shows **Up to date** and stays disabled.
+
+## Development
+
+```sh
+web-ext run              # Launch Firefox with the extension loaded
+web-ext build            # Build the .xpi into web-ext-artifacts/
+./release.sh --dry-run   # Preview a release (version bump, changelog)
+./release.sh             # Tag, build, and publish a GitHub release
+```
+
+- Architecture details and invariants: [`CLAUDE.md`](CLAUDE.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Manual test pages: `test/prompt-builder.test.html`, `test/providers.test.html`
 
 ## Known Limitations
 
-- **CSS selectors may break.** ChatGPT and Claude can update their DOM structure at any time. If injection stops working, update the selectors in settings.
-- **Page/tab summarization requires web browsing.** The LLM must have web browsing capability enabled to read URLs. Without it, the model cannot access the page content.
-- **You must be logged in.** The extension loads the LLM web UI directly — you need an active session in that provider for it to work.
+- **LLM sites change their DOM.** If injection breaks, update the selector overrides in settings (and please file an issue).
+- **You must be logged in** to the provider — the extension drives the site's own UI.
+- **URL-fallback prompts need a browsing-capable model.** Only relevant when article extraction fails and the URL prompt is used.
