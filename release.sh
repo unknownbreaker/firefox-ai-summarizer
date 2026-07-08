@@ -179,7 +179,9 @@ if [ "$DRY_RUN" = true ]; then
   echo "[dry-run] Would prepend release notes to CHANGELOG.md"
   echo "[dry-run] Would commit, tag v${NEXT_VERSION}, and push"
   echo "[dry-run] Would run web-ext build"
-  echo "[dry-run] Would create GitHub Release v${NEXT_VERSION} with .xpi attached"
+  echo "[dry-run] Would create GitHub Release v${NEXT_VERSION} with two assets:"
+  echo "[dry-run]   ai-summarizer-${NEXT_VERSION}.xpi (versioned, archival)"
+  echo "[dry-run]   ai-summarizer.xpi (stable name for /releases/latest/download/ permalink)"
   exit 0
 fi
 
@@ -211,13 +213,23 @@ fi
 RENAMED_XPI="web-ext-artifacts/ai-summarizer-${NEXT_VERSION}.xpi"
 mv "$XPI_FILE" "$RENAMED_XPI"
 
+# Also publish a copy under a stable, version-free name so the GitHub
+# "latest release" asset permalink never changes:
+#   https://github.com/<owner>/<repo>/releases/latest/download/ai-summarizer.xpi
+# The versioned file remains the archival artifact; the version also lives in
+# the release tag and in manifest.json inside the .xpi itself.
+STABLE_XPI="web-ext-artifacts/ai-summarizer.xpi"
+cp "$RENAMED_XPI" "$STABLE_XPI"
+
 # 5. Push commit and tag
 git push origin main
 git push origin "v${NEXT_VERSION}"
 
-# 6. Create GitHub Release
+# 6. Create GitHub Release (versioned .xpi + stable-named copy for the
+# /releases/latest/download/ permalink)
 gh release create "v${NEXT_VERSION}" \
   "$RENAMED_XPI" \
+  "$STABLE_XPI" \
   --title "v${NEXT_VERSION}" \
   --notes "$CHANGELOG_CONTENT"
 
