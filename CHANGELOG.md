@@ -1,3 +1,10 @@
+## v0.4.3 (2026-07-08)
+### Bug Fixes
+- gate injector to the sidebar panel and cut its CPU/memory overhead (0ccd130)
+
+### Other Changes
+- perf: cap extracted article text at 80k chars and skip no-op popup storage writes (278a483)
+
 ## v0.4.2 (2026-06-05)
 ### Bug Fixes
 - wait for Gemini file upload to finish before submitting (98656e6)
