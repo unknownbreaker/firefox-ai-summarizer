@@ -20,7 +20,7 @@ Prompt delivery has three timing scenarios:
 
 1. **Sidebar opens fresh** — new injector loads, sends `injector-ready` handshake, background returns prompt from `pendingPromptData` (in-memory). Fast and race-free.
 2. **Sidebar already open** — `storage.onChanged` fires in the running injector, which reads the prompt from `storage.local`. No handshake needed.
-3. **`newChat` reload** — `setPanel()` with cache-bust forces a new page load. The old injector dies (guarded by `beforeunload`), the new one uses path #1.
+3. **`newChat` reload** — `setPanel()` with cache-bust forces a new page load. The old injector dies (guarded by `pagehide` — not `beforeunload`, which would disable the back/forward cache on normal tabs), the new one uses path #1.
 
 The in-memory variable (`pendingPromptData`) avoids timing races between `storage.local.set()` in the background and `storage.local.get()` in a freshly-loaded content script. The storage path covers the "already open" case where no new page load occurs.
 

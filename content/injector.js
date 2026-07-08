@@ -4,31 +4,61 @@
  * Checks for a pending prompt in storage on load, and also listens for "do-inject" messages.
  */
 
+// Only the sidebar copy of this script may consume prompts. The background
+// marks every sidebarAction.setPanel() URL with a `_t` query param (it doubles
+// as the cache-bust), so a copy loaded in a REGULAR browsing tab on an LLM
+// domain has no `_t` and stays inert: it must not run the injector-ready
+// handshake or watch storage, or it would steal a prompt meant for the
+// sidebar and inject the summary into the wrong page.
+//
+// Checked against the navigation timing entry, not window.location: this
+// script runs at document_idle, by which point an SPA router (Gemini) may
+// already have rewritten the URL via replaceState. The navigation entry
+// preserves the document's original URL.
+const isSidebarPanel = (() => {
+  try {
+    const nav = performance.getEntriesByType("navigation")[0];
+    const originalUrl = (nav && nav.name) || window.location.href;
+    return new URL(originalUrl).searchParams.has("_t");
+  } catch (_) {
+    return new URLSearchParams(window.location.search).has("_t");
+  }
+})();
+
 // Guard against concurrent injection from multiple triggers
 let injecting = false;
 
 // Prevent the dying injector from consuming a prompt during page unload
 // (e.g., when the provider changes and setPanel triggers a reload).
+// `pagehide`, not `beforeunload`: a beforeunload listener makes the page
+// ineligible for the back/forward cache, which would slow down ordinary
+// browsing on every LLM domain this script matches.
 let unloading = false;
-window.addEventListener("beforeunload", () => { unloading = true; });
+window.addEventListener("pagehide", () => { unloading = true; });
 
 /**
  * Consume and inject a pending prompt from storage.
  * Uses a flag to prevent double-injection when both checkPendingPrompt
  * (on page load) and storage.onChanged fire for the same prompt.
  */
-async function consumePendingPrompt() {
+async function consumePendingPrompt(pending) {
   if (injecting || unloading) return;
   injecting = true;
 
   try {
-    const stored = await browser.storage.local.get(["pendingPrompt"]);
-    if (!stored.pendingPrompt) return;
+    // storage.onChanged already hands us the new value — reuse it instead of
+    // re-reading (and re-deserializing) the potentially large article payload
+    // from storage. The get() is only a fallback for direct calls.
+    if (!pending) {
+      const stored = await browser.storage.local.get(["pendingPrompt"]);
+      pending = stored.pendingPrompt;
+    }
+    if (!pending) return;
 
-    const { prompt, provider } = stored.pendingPrompt;
-    const articleFile = stored.pendingPrompt.articleFile || null;
-    const urlFallback = stored.pendingPrompt.urlFallback || null;
-    const textFallback = stored.pendingPrompt.textFallback || null;
+    const { prompt, provider } = pending;
+    const articleFile = pending.articleFile || null;
+    const urlFallback = pending.urlFallback || null;
+    const textFallback = pending.textFallback || null;
 
     // Clear it immediately so it doesn't re-trigger
     await browser.storage.local.remove("pendingPrompt");
@@ -80,24 +110,28 @@ async function checkPendingPrompt() {
   }
 }
 
-// React to new prompts stored while the sidebar is already open
-browser.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes.pendingPrompt && changes.pendingPrompt.newValue) {
-    consumePendingPrompt();
-  }
-});
+// Prompt delivery is only wired up in the sidebar panel (see isSidebarPanel).
+// Inert copies in regular tabs register no listeners and do no per-load work.
+if (isSidebarPanel) {
+  // React to new prompts stored while the sidebar is already open
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes.pendingPrompt && changes.pendingPrompt.newValue) {
+      consumePendingPrompt(changes.pendingPrompt.newValue);
+    }
+  });
 
-// Also listen for direct messages
-browser.runtime.onMessage.addListener((message) => {
-  if (message.type !== "do-inject") return;
-  return doInject(
-    message.prompt,
-    message.provider,
-    message.articleFile || null,
-    message.urlFallback || null,
-    message.textFallback || null
-  );
-});
+  // Also listen for direct messages
+  browser.runtime.onMessage.addListener((message) => {
+    if (message.type !== "do-inject") return;
+    return doInject(
+      message.prompt,
+      message.provider,
+      message.articleFile || null,
+      message.urlFallback || null,
+      message.textFallback || null
+    );
+  });
+}
 
 /**
  * Try to find and click the submit button using a fallback chain:
@@ -198,7 +232,13 @@ async function tryFileUpload(provider, articleFile, dropTarget) {
  * is still uploading, and submitting in that window sends the prompt text alone.
  */
 async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
-  const landed = () => document.body.textContent.includes(articleFile.name);
+  const landed = () => documentContainsText(articleFile.name);
+
+  // The page-realm File/DataTransfer carry the full article content; build
+  // them once and reuse across retries instead of re-cloning the payload into
+  // the page realm on every attempt. Built lazily inside the loop because the
+  // page realm may not be ready on the first attempts of a fresh load.
+  let dropInit = null;
 
   // Retry, re-querying the live editor each attempt. On a fresh sidebar load
   // (newChat → setPanel) the ql-editor element can exist before Gemini's drop
@@ -217,7 +257,10 @@ async function tryFileDrop(articleFile, dropSelector, fallbackTarget) {
     const target = (dropSelector && document.querySelector(dropSelector)) || fallbackTarget;
     if (target) {
       try {
-        dispatchPageRealmDrop(target, articleFile);
+        if (!dropInit) {
+          dropInit = buildPageRealmDropInit(articleFile);
+        }
+        dispatchPageRealmDrop(target, dropInit);
       } catch (e) {
         // Page realm not ready yet during a fresh load — let the loop retry.
       }
@@ -289,7 +332,7 @@ async function waitForUploadComplete(timeoutMs = 10000) {
  * same-realm File and accepts the drop. No <script> injection, so the page's
  * CSP doesn't apply. Firefox-only — which is fine, this is a Firefox extension.
  */
-function dispatchPageRealmDrop(target, articleFile) {
+function buildPageRealmDropInit(articleFile) {
   const pageWindow = window.wrappedJSObject;
 
   const file = new pageWindow.File(
@@ -301,12 +344,15 @@ function dispatchPageRealmDrop(target, articleFile) {
   const dataTransfer = new pageWindow.DataTransfer();
   dataTransfer.items.add(file);
 
-  const init = cloneInto(
+  return cloneInto(
     { bubbles: true, cancelable: true, composed: true, dataTransfer },
     window,
     { wrapReflectors: true }
   );
+}
 
+function dispatchPageRealmDrop(target, init) {
+  const pageWindow = window.wrappedJSObject;
   for (const type of ["dragenter", "dragover", "drop"]) {
     target.dispatchEvent(new pageWindow.DragEvent(type, init));
   }
@@ -424,13 +470,19 @@ async function doInject(prompt, provider, articleFile = null, urlFallback = null
   }
 }
 
-// Check for pending prompt immediately on load.
+// Check for pending prompt immediately on load (sidebar panel only).
 // No delay needed — waitForElement handles waiting for the DOM.
-checkPendingPrompt();
+if (isSidebarPanel) {
+  checkPendingPrompt();
+}
 
 /**
  * Wait for an element matching the selector to appear in the DOM.
- * Uses MutationObserver with a timeout.
+ * Polls at a fixed interval instead of using a MutationObserver: SPA boots
+ * (Gemini, ChatGPT) fire mutation bursts many times a second, and running a
+ * full-document querySelector per batch was the injector's hottest code path.
+ * A 100ms poll bounds the work at 10 checks/sec, and the added latency
+ * (≤100ms) is dwarfed by the downstream injection delay.
  */
 function waitForElement(selector, timeoutMs) {
   return new Promise((resolve) => {
@@ -440,18 +492,17 @@ function waitForElement(selector, timeoutMs) {
       return;
     }
 
-    const observer = new MutationObserver(() => {
+    const timer = setInterval(() => {
       const el = document.querySelector(selector);
       if (el) {
-        observer.disconnect();
+        clearInterval(timer);
+        clearTimeout(deadline);
         resolve(el);
       }
-    });
+    }, 100);
 
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    setTimeout(() => {
-      observer.disconnect();
+    const deadline = setTimeout(() => {
+      clearInterval(timer);
       resolve(null);
     }, timeoutMs);
   });
@@ -477,11 +528,12 @@ function waitForClickableButton(selector, timeoutMs) {
       const el = document.querySelector(selector);
       if (isClickable(el)) {
         clearInterval(timer);
+        clearTimeout(deadline);
         resolve(el);
       }
     }, pollInterval);
 
-    setTimeout(() => {
+    const deadline = setTimeout(() => {
       clearInterval(timer);
       resolve(null);
     }, timeoutMs);
@@ -579,15 +631,34 @@ function waitForCondition(predicate, timeoutMs) {
     const timer = setInterval(() => {
       if (predicate()) {
         clearInterval(timer);
+        clearTimeout(deadline);
         resolve(true);
       }
     }, pollInterval);
 
-    setTimeout(() => {
+    const deadline = setTimeout(() => {
       clearInterval(timer);
       resolve(false);
     }, timeoutMs);
   });
+}
+
+/**
+ * Check whether `needle` appears anywhere in the document's text WITHOUT
+ * serializing the whole page: `document.body.textContent` allocates the
+ * entire page text on every call, and this runs inside a 10Hz poll on
+ * Gemini's large Angular DOM. A TreeWalker visits text nodes one at a time —
+ * the needle (a file name) always sits inside a single text node — so no
+ * giant string is ever built. Still class-agnostic, so it survives provider
+ * UI churn.
+ */
+function documentContainsText(needle) {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.data.includes(needle)) return true;
+  }
+  return false;
 }
 
 function sleep(ms) {

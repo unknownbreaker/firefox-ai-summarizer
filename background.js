@@ -54,14 +54,14 @@ browser.runtime.onMessage.addListener((message, sender) => {
       // during a newChat reload. The new injector still needs the prompt.
       return handleInjectionError(message);
     case "injection-success":
-      pendingPromptData = null;
+      setPendingPromptData(null);
       return;
     case "injector-ready": {
       // Handshake: injector loaded and is asking for a pending prompt.
       // Return from memory first (most reliable), fall back to storage.
       const data = pendingPromptData;
       if (data) {
-        pendingPromptData = null;
+        setPendingPromptData(null);
         browser.storage.local.remove("pendingPrompt");
         return Promise.resolve(data);
       }
@@ -87,8 +87,11 @@ async function handleSummarizePage({ fromUserGesture = false, newChat = false } 
     return;
   }
 
-  const preset = await getDefaultPreset();
-  const article = await extractArticle(tab.id);
+  // Independent reads — run in parallel to save a storage round-trip.
+  const [preset, article] = await Promise.all([
+    getDefaultPreset(),
+    extractArticle(tab.id)
+  ]);
 
   if (article.extractionFailed) {
     // Extraction failed — fall back to URL-only prompt (current behavior)
@@ -125,18 +128,20 @@ async function handleSummarizeTabs({ fromUserGesture = false, newChat = false } 
     return;
   }
 
-  const preset = await getDefaultPreset();
-
-  // Extract articles from all tabs in parallel
-  const articles = await Promise.all(
-    summarizableTabs.map(async (t) => {
+  // Extract articles in small batches. Each extraction injects Readability
+  // and clones the tab's full DOM (article-extractor.js), so extracting every
+  // tab at once spikes CPU and memory across all content processes when many
+  // tabs are open. The preset read runs alongside the first batch.
+  const [preset, articles] = await Promise.all([
+    getDefaultPreset(),
+    mapWithConcurrency(summarizableTabs, 4, async (t) => {
       const article = await extractArticle(t.id);
       if (article.extractionFailed) {
         return { ...article, url: t.url, title: t.title || t.url };
       }
       return article;
     })
-  );
+  ]);
 
   const anyExtracted = articles.some(a => !a.extractionFailed);
   const tabData = summarizableTabs.map(t => ({ title: t.title || t.url, url: t.url }));
@@ -176,10 +181,11 @@ async function handleSummarizeSelection(tab, { newChat = false } = {}) {
       return;
     }
 
-    const settings = await browser.storage.sync.get(["charLimit"]);
+    const [settings, preset] = await Promise.all([
+      browser.storage.sync.get(["charLimit"]),
+      getDefaultPreset()
+    ]);
     const charLimit = settings.charLimit || 10000;
-
-    const preset = await getDefaultPreset();
     const prompt = buildSelectionPrompt(results.text, preset.instruction, charLimit);
     await injectPrompt(prompt, { newChat });
 
@@ -195,6 +201,19 @@ async function handleSummarizeSelection(tab, { newChat = false } = {}) {
  * The injector content script (registered in manifest.json) will auto-load
  * on matching provider domains.
  */
+/**
+ * Append the `_t` marker to a provider URL for setPanel().
+ * `_t` serves double duty: a cache-bust (setPanel with the same URL is a
+ * no-op) AND the sidebar marker the injector keys on — injector copies loaded
+ * in regular browsing tabs (no `_t`) stay inert so they can't steal a prompt
+ * meant for the sidebar. EVERY setPanel() call with a provider URL must go
+ * through this helper.
+ */
+function withSidebarMarker(url, token) {
+  const separator = url.includes("?") ? "&" : "?";
+  return url + separator + "_t=" + token;
+}
+
 async function loadSidebarProvider() {
   const { provider, error } = await getActiveProvider();
 
@@ -204,7 +223,9 @@ async function loadSidebarProvider() {
     return;
   }
 
-  await browser.sidebarAction.setPanel({ panel: provider.url });
+  // Constant token: this path shouldn't force a reload when nothing changed,
+  // but the URL still needs the `_t` sidebar marker for the injector.
+  await browser.sidebarAction.setPanel({ panel: withSidebarMarker(provider.url, "0") });
 }
 
 // Initialize sidebar panel on startup
@@ -215,6 +236,28 @@ loadSidebarProvider();
 // Hold the pending prompt in memory so the injector can request it directly
 // via the "injector-ready" handshake, avoiding storage timing races.
 let pendingPromptData = null;
+let pendingPromptTimer = null;
+
+// The handshake completes within seconds. If no injector ever picks the
+// prompt up (sidebar closed mid-flight, injection failed and was deliberately
+// not cleared), don't pin the article payload — potentially megabytes — in
+// the persistent background page indefinitely, nor leave it orphaned on disk.
+const PENDING_PROMPT_TTL_MS = 60000;
+
+function setPendingPromptData(data) {
+  pendingPromptData = data;
+  clearTimeout(pendingPromptTimer);
+  pendingPromptTimer = null;
+  if (data) {
+    pendingPromptTimer = setTimeout(() => {
+      pendingPromptData = null;
+      browser.storage.local.remove("pendingPrompt");
+    }, PENDING_PROMPT_TTL_MS);
+  }
+}
+
+// Any pendingPrompt left in storage from a previous browser session is stale.
+browser.storage.local.remove("pendingPrompt");
 
 /**
  * Deliver a prompt to the injector content script.
@@ -243,8 +286,9 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, 
 
   const data = { prompt, provider, articleFile, urlFallback, textFallback };
 
-  // Hold in memory for the injector-ready handshake (new page loads)
-  pendingPromptData = data;
+  // Hold in memory for the injector-ready handshake (new page loads).
+  // Auto-expires after PENDING_PROMPT_TTL_MS if never consumed.
+  setPendingPromptData(data);
 
   if (newChat) {
     // Force a fresh chat by reloading the sidebar panel. Append a cache-bust
@@ -258,8 +302,7 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, 
     // open), which would consume the prompt and inject it into the page we're
     // about to reload away — so the prompt vanishes in the navigation and the
     // fresh chat gets nothing.
-    const separator = provider.url.includes("?") ? "&" : "?";
-    const freshUrl = provider.url + separator + "_t=" + Date.now();
+    const freshUrl = withSidebarMarker(provider.url, Date.now());
     await browser.sidebarAction.setPanel({ panel: freshUrl });
   } else {
     // Sidebar already open with no reload — deliver to the running injector
@@ -281,7 +324,15 @@ async function injectPrompt(prompt, { fromUserGesture = false, newChat = false, 
  */
 async function extractArticle(tabId) {
   try {
-    await browser.tabs.executeScript(tabId, { file: "lib/readability.js" });
+    // Readability is ~85KB and executeScript re-parses and re-evaluates it on
+    // every call. Probe for its sentinel globals first and only inject the
+    // library when the tab doesn't already have it (repeat summarizes).
+    const [hasLib] = await browser.tabs.executeScript(tabId, {
+      code: "typeof Readability === 'function' && typeof isProbablyReaderable === 'function'"
+    });
+    if (!hasLib) {
+      await browser.tabs.executeScript(tabId, { file: "lib/readability.js" });
+    }
     const results = await browser.tabs.executeScript(tabId, { file: "content/article-extractor.js" });
     return results[0] || { extractionFailed: true, reason: "error", url: "" };
   } catch (e) {
@@ -294,6 +345,24 @@ async function extractArticle(tabId) {
 async function getActiveTab() {
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   return tabs[0] || null;
+}
+
+/**
+ * Map `fn` over `items` with at most `limit` calls in flight at once.
+ * Preserves order; a rejected fn rejects the whole map (callers wrap fn
+ * bodies that must not throw, e.g. extractArticle already catches).
+ */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 async function getDefaultPreset() {
