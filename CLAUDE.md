@@ -59,7 +59,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 - **`storage.onChanged` fires in ALL extension contexts** — background, content scripts, popups, sidebar. Useful as a cross-context event bus.
 - **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
 - **Never clear Claude's ProseMirror editor with `innerHTML = ""`** — ProseMirror keeps its own document model plus a DOM selection. Wiping innerHTML out-of-band destroys the selection, so `execCommand("insertText")` has no caret to insert at and intermittently returns `false`, leaving the editor empty — the prompt silently vanishes (especially after a file attach, when ProseMirror's focus/selection is already churning, which is why text-only Claude worked but page-upload didn't). In `setInputValue` (injector.js), select existing content so `insertText` *replaces* it, with a synthetic `paste` event (via `clipboardData`) as a verified fallback. ChatGPT uses the native textarea value setter so it's unaffected.
-- **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only. Extracted text is capped at 80k chars/article (article-extractor.js) — the payload is held in background memory, storage.local, and cloned into the page realm, so it must stay bounded. Multi-tab extraction runs in batches of 4 (`mapWithConcurrency` in background.js) because each extraction clones the tab's full DOM.
+- **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only. Extracted text is deliberately NOT length-capped (user decision, 2026-07-08 — a cap was added then removed): the full article always reaches the LLM. Multi-tab extraction runs in batches of 4 (`mapWithConcurrency` in background.js) because each extraction clones the tab's full DOM.
 - **Synthetic file drops must be built in the PAGE realm, not the content-script sandbox** — Firefox content scripts run in an isolated sandbox behind Xray wrappers. A `File`/`DataTransfer` constructed in the sandbox is invisible when the page's drop handler reads `event.dataTransfer.files` — the drop fires but attaches *nothing*, with no error. (Symptom: works from the DevTools console, which runs in the page realm, but silently no-ops from the content script.) Asymmetry worth remembering: assigning to a real element's `.files` (as `tryFileUpload` does for ChatGPT/Claude) crosses the boundary fine; it's only *reading* files off a sandbox-built event that fails. Fix in `dispatchPageRealmDrop` (injector.js): build `File`/`DataTransfer`/`DragEvent` via `window.wrappedJSObject` (the page's real constructors) and `cloneInto` plain data into the page realm (`wrapReflectors: true` so the cloned event init can carry the native `DataTransfer`). This is how Gemini's `fileUploadMethod: "drop"` actually attaches.
 
 ## Design Decisions
@@ -88,14 +88,14 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `background.js` | 392 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching |
 | `content/injector.js` | 654 | Runs on LLM pages in sidebar (inert in regular tabs — no `_t` marker). Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
-| `content/article-extractor.js` | 54 | One-shot script injected into active tab to extract article via Readability (capped at 80k chars) |
+| `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability (no length cap) |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
 | `providers/providers.js` | 98 | Provider config (Gemini/Claude/ChatGPT/custom). Load/save from `storage.sync`, merge overrides |
 | `popup/popup.{html,js}` | 168 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link |
 | `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
-| `release.sh` | 214 | Automated release: semver bump from conventional commits, changelog, build, GitHub release |
+| `release.sh` | 238 | Automated release: semver bump from conventional commits, changelog, build, GitHub release. Attaches the .xpi twice — versioned (`ai-summarizer-X.Y.Z.xpi`, archival) and stable-named (`ai-summarizer.xpi`, keeps the `/releases/latest/download/` permalink valid) |
 
 ## Storage Keys
 

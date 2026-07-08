@@ -13,13 +13,6 @@
 (function () {
   var url = window.location.href;
 
-  // Cap the extracted text per article. The payload travels far — across the
-  // executeScript boundary, into the background page's memory, into
-  // storage.local, and cloned into the LLM page's realm as a File — so an
-  // unbounded extraction (or many tabs of them) can pin tens of MB. 80k chars
-  // (~20k tokens) is more than any summary needs.
-  var MAX_ARTICLE_CHARS = 80000;
-
   if (typeof isProbablyReaderable !== "function" || typeof Readability !== "function") {
     return { extractionFailed: true, reason: "error", url: url };
   }
@@ -36,16 +29,10 @@
       return { extractionFailed: true, reason: "insufficient-content", url: url };
     }
 
-    var text = article.textContent.trim();
-    if (text.length > MAX_ARTICLE_CHARS) {
-      text = text.slice(0, MAX_ARTICLE_CHARS) +
-        "\n\n[Article truncated at " + MAX_ARTICLE_CHARS + " characters]";
-    }
-
     return {
       title: article.title || null,
       byline: article.byline || null,
-      textContent: text,
+      textContent: article.textContent.trim(),
       url: url
     };
   } catch (e) {
