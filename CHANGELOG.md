@@ -1,3 +1,12 @@
+## v0.6.0 (2026-07-21)
+### Features
+- show a NEW badge on the toolbar icon when an update is available (99c801e)
+
+### Documentation
+- add hero image showing a summary in the sidebar (2b282d9)
+- move install section to the top of the README (619ad8a)
+- rewrite README with current features and screenshots (814fcae)
+
 ## v0.5.0 (2026-07-08)
 ### Features
 - add install-latest-release button to the popup (b6cc9af)
