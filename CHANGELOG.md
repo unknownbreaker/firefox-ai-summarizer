@@ -1,3 +1,7 @@
+## v0.6.4 (2026-07-21)
+### Other Changes
+- chore: dummy release to verify the release-page update flow (353bba6)
+
 ## v0.6.3 (2026-07-21)
 ### Bug Fixes
 - open the release page for updates instead of downloading the .xpi (ea929a4)
