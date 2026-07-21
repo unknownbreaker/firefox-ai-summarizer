@@ -1,3 +1,7 @@
+## v0.6.3 (2026-07-21)
+### Bug Fixes
+- open the release page for updates instead of downloading the .xpi (ea929a4)
+
 ## v0.6.2 (2026-07-21)
 ### Other Changes
 - chore: dummy release to verify the in-extension update flow (d33baab)
