@@ -12,7 +12,7 @@ Summarize web content in the Firefox sidebar using the LLM web UIs you already u
 
 **[⬇ Download the latest release (.xpi)](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi)**
 
-- Open the downloaded file with Firefox (or drag it onto a Firefox window) and confirm the install prompt.
+- Clicking the link in Firefox starts the install directly — allow the prompt when Firefox asks. (If you saved the file instead, drag it onto a Firefox window or use about:addons → gear → "Install Add-on From File…".)
 - Note: stock release Firefox requires signed extensions. For unsigned builds, use Firefox Developer Edition or Nightly with `xpinstall.signatures.required` set to `false`.
 - All versions: [Releases page](https://github.com/unknownbreaker/firefox-ai-summarizer/releases)
 
@@ -91,7 +91,7 @@ If any step fails, the prompt falls back down the chain (file → URL → pasted
 
 - A **"NEW" badge appears on the toolbar icon** when a newer release is available (checked every 6 hours in the background).
 - The popup also checks the [latest GitHub release](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest) each time it opens (cached 15 min).
-- Newer version available → the **Install latest release** button activates; clicking downloads the new `.xpi`, then open it from the Downloads panel to install.
+- Newer version available → the **Get update** button activates; it opens the release page, where clicking `ai-summarizer.xpi` starts Firefox's install flow (allow the prompt).
 - Already current → no badge, and the button shows **Up to date** and stays disabled.
 
 ## Development

@@ -64,25 +64,20 @@ document.getElementById("open-settings").addEventListener("click", (e) => {
   window.close();
 });
 
-installLatestButton.addEventListener("click", async () => {
-  // Fetch the .xpi via the downloads API. Navigating a tab to it does NOT
-  // work: GitHub serves .xpi as inline application/x-xpinstall, which Firefox
-  // treats as a website install attempt and silently blocks for
-  // extension-opened tabs (blank page, no download, no prompt).
-  installLatestButton.disabled = true;
-  installLatestButton.textContent = "Downloading…";
-  try {
-    await browser.downloads.download({
-      url: LATEST_XPI_URL,
-      filename: "ai-summarizer.xpi"
-    });
-    installLatestButton.textContent = "Downloaded — open it from the Downloads panel to install";
-  } catch (_) {
-    // Download refused (e.g. user cancelled the save dialog) — fall back to
-    // the release page, where a real click can fetch the asset.
-    browser.tabs.create({ url: RELEASES_PAGE_URL });
-    window.close();
-  }
+installLatestButton.addEventListener("click", () => {
+  // Open the release PAGE and let the user click the .xpi asset there.
+  // That user-gesture click on a web page is the only path Firefox fully
+  // supports for self-hosted extensions: it shows the "allow this site to
+  // install add-ons?" doorhanger, then the real install prompt.
+  //
+  // The two shortcuts do NOT work:
+  //   - tabs.create straight to the .xpi → Firefox silently blocks install
+  //     attempts from extension-opened tabs (blank page).
+  //   - downloads.download() → the file lands on disk, but "open" in the
+  //     Downloads panel delegates to the OS, and macOS has no handler for
+  //     .xpi ("choose an application" dialog) — it never reaches Firefox.
+  browser.tabs.create({ url: RELEASES_PAGE_URL });
+  window.close();
 });
 
 // --- Update Check ---
@@ -117,8 +112,8 @@ async function checkLatestRelease() {
     installLatestButton.title = "You already have the latest release installed.";
   } else {
     installLatestButton.disabled = false;
-    installLatestButton.textContent = `Install latest release (v${latestVersion})`;
-    installLatestButton.title = `Installed: v${currentVersion} — downloads the newest .xpi from GitHub.`;
+    installLatestButton.textContent = `Get update (v${latestVersion}) on GitHub`;
+    installLatestButton.title = `Installed: v${currentVersion} — opens the release page; click ai-summarizer.xpi there and allow the install.`;
   }
 }
 

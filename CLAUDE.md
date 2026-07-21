@@ -84,16 +84,16 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 
 | File | Lines | Role |
 |------|-------|------|
-| `manifest.json` | 83 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page. Permissions include `downloads` (install button) |
+| `manifest.json` | 82 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
 | `background.js` | 432 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching, update badge ("NEW" on the toolbar icon when a newer release exists; 6-hour poll + reacts to `updateCheck` cache writes via storage.onChanged) |
 | `content/injector.js` | 654 | Runs on LLM pages in sidebar (inert in regular tabs — no `_t` marker). Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability (no length cap) |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
-| `lib/update-check.js` | 70 | Shared GitHub latest-release check (`getLatestVersion()`, 15-min cache in `updateCheck`) + `syncUpdateBadge()` (toolbar "NEW" badge). Loaded by both background and popup; the POPUP must call `syncUpdateBadge` after every check — a cache-fresh check writes nothing, so `storage.onChanged` alone would leave a stale badge |
+| `lib/update-check.js` | 65 | Shared GitHub latest-release check (`getLatestVersion()`, 15-min cache in `updateCheck`) + `syncUpdateBadge()` (toolbar "NEW" badge) + `RELEASES_PAGE_URL`. Loaded by both background and popup; the POPUP must call `syncUpdateBadge` after every check — a cache-fresh check writes nothing, so `storage.onChanged` alone would leave a stale badge |
 | `providers/providers.js` | 98 | Provider config (Gemini/Claude/ChatGPT/custom). Load/save from `storage.sync`, merge overrides |
-| `popup/popup.{html,js}` | 251 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link, "install latest release" button (checks GitHub latest release on every popup open via `lib/update-check.js`; disabled when installed version matches). Install click uses the `downloads` API — navigating a tab to the .xpi does NOT work: GitHub serves it as inline `application/x-xpinstall`, which Firefox silently blocks as a website install attempt in extension-opened tabs (blank page) |
+| `popup/popup.{html,js}` | 246 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link, update button (checks GitHub latest release on every popup open via `lib/update-check.js`; disabled when installed version matches). The button opens the RELEASE PAGE — a user click on the .xpi there is the only supported install path. Dead ends (tried, both fail): tabs.create to the .xpi = silently blocked website-install attempt (blank page); `downloads` API = file lands on disk but the Downloads panel "open" goes to the OS, which has no .xpi handler |
 | `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
 | `release.sh` | 238 | Automated release: semver bump from conventional commits, changelog, build, GitHub release. Attaches the .xpi twice — versioned (`ai-summarizer-X.Y.Z.xpi`, archival) and stable-named (`ai-summarizer.xpi`, keeps the `/releases/latest/download/` permalink valid) |
