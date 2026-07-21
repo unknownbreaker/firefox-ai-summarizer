@@ -1,3 +1,7 @@
+## v0.6.2 (2026-07-21)
+### Other Changes
+- chore: dummy release to verify the in-extension update flow (d33baab)
+
 ## v0.6.1 (2026-07-21)
 ### Bug Fixes
 - make the install button actually download and keep the badge in sync with the popup (f043939)
