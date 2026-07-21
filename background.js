@@ -387,20 +387,17 @@ function notify(message) {
 // Firefox, so a plain setInterval is reliable here.
 const UPDATE_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-function setUpdateBadge(updateAvailable) {
-  browser.browserAction.setBadgeText({ text: updateAvailable ? "NEW" : "" });
-  if (updateAvailable) {
-    browser.browserAction.setBadgeBackgroundColor({ color: "#0060df" });
-  }
-}
-
 async function refreshUpdateBadge() {
   try {
-    const latestVersion = await getLatestVersion();
-    setUpdateBadge(latestVersion !== browser.runtime.getManifest().version);
+    syncUpdateBadge(await getLatestVersion());
   } catch (_) {
-    // Offline or rate-limited — keep the current badge state rather than
-    // flickering it off; the next poll or popup open will correct it.
+    // Check failed (offline, rate-limited) — fall back to the last cached
+    // version, even an expired one: a stale-but-real comparison beats
+    // freezing the badge, which could leave "NEW" showing after an update.
+    const cached = await browser.storage.local.get(["updateCheck"]);
+    if (cached.updateCheck) {
+      syncUpdateBadge(cached.updateCheck.latestVersion);
+    }
   }
 }
 
@@ -412,9 +409,7 @@ setInterval(refreshUpdateBadge, UPDATE_POLL_INTERVAL_MS);
 // right after an update installs and versions match again).
 browser.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes.updateCheck && changes.updateCheck.newValue) {
-    setUpdateBadge(
-      changes.updateCheck.newValue.latestVersion !== browser.runtime.getManifest().version
-    );
+    syncUpdateBadge(changes.updateCheck.newValue.latestVersion);
   }
 });
 

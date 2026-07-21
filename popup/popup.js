@@ -64,10 +64,25 @@ document.getElementById("open-settings").addEventListener("click", (e) => {
   window.close();
 });
 
-installLatestButton.addEventListener("click", () => {
-  // Opening the .xpi URL in a tab triggers Firefox's install prompt.
-  browser.tabs.create({ url: LATEST_XPI_URL });
-  window.close();
+installLatestButton.addEventListener("click", async () => {
+  // Fetch the .xpi via the downloads API. Navigating a tab to it does NOT
+  // work: GitHub serves .xpi as inline application/x-xpinstall, which Firefox
+  // treats as a website install attempt and silently blocks for
+  // extension-opened tabs (blank page, no download, no prompt).
+  installLatestButton.disabled = true;
+  installLatestButton.textContent = "Downloading…";
+  try {
+    await browser.downloads.download({
+      url: LATEST_XPI_URL,
+      filename: "ai-summarizer.xpi"
+    });
+    installLatestButton.textContent = "Downloaded — open it from the Downloads panel to install";
+  } catch (_) {
+    // Download refused (e.g. user cancelled the save dialog) — fall back to
+    // the release page, where a real click can fetch the asset.
+    browser.tabs.create({ url: RELEASES_PAGE_URL });
+    window.close();
+  }
 });
 
 // --- Update Check ---
@@ -91,6 +106,11 @@ async function checkLatestRelease() {
     return;
   }
 
+  // Keep the toolbar badge consistent with what the button shows — the
+  // storage.onChanged signal alone can't do this when the check was served
+  // from a fresh cache (no write happens, so the background never hears it).
+  syncUpdateBadge(latestVersion);
+
   if (latestVersion === currentVersion) {
     installLatestButton.disabled = true;
     installLatestButton.textContent = `Up to date (v${currentVersion})`;
@@ -98,7 +118,7 @@ async function checkLatestRelease() {
   } else {
     installLatestButton.disabled = false;
     installLatestButton.textContent = `Install latest release (v${latestVersion})`;
-    installLatestButton.title = `Installed: v${currentVersion} — opens the newest .xpi from GitHub.`;
+    installLatestButton.title = `Installed: v${currentVersion} — downloads the newest .xpi from GitHub.`;
   }
 }
 
