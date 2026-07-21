@@ -85,14 +85,15 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | File | Lines | Role |
 |------|-------|------|
 | `manifest.json` | 72 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
-| `background.js` | 392 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching |
+| `background.js` | 432 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching, update badge ("NEW" on the toolbar icon when a newer release exists; 6-hour poll + reacts to `updateCheck` cache writes via storage.onChanged) |
 | `content/injector.js` | 654 | Runs on LLM pages in sidebar (inert in regular tabs — no `_t` marker). Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability (no length cap) |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
 | `lib/prompt-builder.js` | 72 | Prompt templates for page/tabs/selection. Preset management (concise/detailed/bullets + custom) |
+| `lib/update-check.js` | 46 | Shared GitHub latest-release check (`getLatestVersion()`, 15-min cache in `updateCheck`). Loaded by both background (badge) and popup (install button) |
 | `providers/providers.js` | 98 | Provider config (Gemini/Claude/ChatGPT/custom). Load/save from `storage.sync`, merge overrides |
-| `popup/popup.{html,js}` | 257 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link, "install latest release" button (checks GitHub latest release on every popup open, 15-min cache in `updateCheck`; disabled when installed version matches) |
+| `popup/popup.{html,js}` | 231 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link, "install latest release" button (checks GitHub latest release on every popup open via `lib/update-check.js`; disabled when installed version matches) |
 | `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
 | `release.sh` | 238 | Automated release: semver bump from conventional commits, changelog, build, GitHub release. Attaches the .xpi twice — versioned (`ai-summarizer-X.Y.Z.xpi`, archival) and stable-named (`ai-summarizer.xpi`, keeps the `/releases/latest/download/` permalink valid) |
@@ -110,7 +111,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `autoSubmit` | sync | boolean (default: true) |
 | `charLimit` | sync | Max chars for selection (default: 10000) |
 | `pendingPrompt` | local | `{ prompt, provider, articleFile?, urlFallback?, textFallback? }` — consumed by injector. Purged at background startup; both it and the in-memory `pendingPromptData` auto-expire 60s after being set if never consumed (`setPendingPromptData`), so a failed delivery doesn't pin a large article payload |
-| `updateCheck` | local | `{ latestVersion, checkedAt }` — 15-min cache of the GitHub latest-release check driving the popup's install button |
+| `updateCheck` | local | `{ latestVersion, checkedAt }` — 15-min cache of the GitHub latest-release check (`lib/update-check.js`), shared by the popup's install button and the background's toolbar badge. Writes double as the badge-refresh signal (background listens via storage.onChanged) |
 
 ## Development
 

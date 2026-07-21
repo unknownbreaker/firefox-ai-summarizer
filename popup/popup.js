@@ -2,14 +2,6 @@ const providerSelect = document.getElementById("provider-select");
 const presetSelect = document.getElementById("preset-select");
 const installLatestButton = document.getElementById("install-latest");
 
-const RELEASES_API_URL =
-  "https://api.github.com/repos/unknownbreaker/firefox-ai-summarizer/releases/latest";
-// Stable-named asset attached to every release (see release.sh) so this
-// permalink always points at the newest .xpi. Opening it in a tab triggers
-// Firefox's install prompt.
-const LATEST_XPI_URL =
-  "https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest/download/ai-summarizer.xpi";
-
 // Last values known to be persisted, so saveSelections() can skip no-op
 // writes — storage.sync writes are rate-limited by quota, and the summarize
 // buttons would otherwise burn two writes per click even when nothing changed.
@@ -81,36 +73,17 @@ installLatestButton.addEventListener("click", () => {
 // --- Update Check ---
 
 /**
- * Check the newest GitHub release on every popup open and reflect it in the
- * install button: enabled when the latest version differs from the installed
- * one, disabled when they match (or the check fails — offline, rate-limited).
- *
- * The result is cached in storage.local for 15 minutes so rapid re-opens
- * don't re-hit the API (unauthenticated GitHub API allows 60 requests/hour
- * per IP) and the button state renders instantly.
+ * Check the newest GitHub release on every popup open (via the shared
+ * lib/update-check.js, 15-min cache) and reflect it in the install button:
+ * enabled when the latest version differs from the installed one, disabled
+ * when they match (or the check fails — offline, rate-limited).
  */
-const UPDATE_CHECK_CACHE_MS = 15 * 60 * 1000;
-
 async function checkLatestRelease() {
   const currentVersion = browser.runtime.getManifest().version;
 
   let latestVersion = null;
   try {
-    const cached = await browser.storage.local.get(["updateCheck"]);
-    if (cached.updateCheck && Date.now() - cached.updateCheck.checkedAt < UPDATE_CHECK_CACHE_MS) {
-      latestVersion = cached.updateCheck.latestVersion;
-    } else {
-      const response = await fetch(RELEASES_API_URL, {
-        headers: { Accept: "application/vnd.github+json" }
-      });
-      if (!response.ok) throw new Error("release check failed: " + response.status);
-      const release = await response.json();
-      latestVersion = (release.tag_name || "").replace(/^v/, "");
-      if (!latestVersion) throw new Error("no tag_name in latest release");
-      await browser.storage.local.set({
-        updateCheck: { latestVersion, checkedAt: Date.now() }
-      });
-    }
+    latestVersion = await getLatestVersion();
   } catch (_) {
     installLatestButton.disabled = true;
     installLatestButton.textContent = "Install latest release";

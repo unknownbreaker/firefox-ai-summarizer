@@ -21,6 +21,7 @@
     "scripts": [
       "providers/providers.js",
       "lib/prompt-builder.js",
+      "lib/update-check.js",
       "background.js"
     ]
   },

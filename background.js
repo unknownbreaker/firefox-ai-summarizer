@@ -378,6 +378,46 @@ function notify(message) {
   });
 }
 
+// --- Update Badge ---
+
+// Show a badge on the toolbar icon when a newer release is available, so the
+// user learns about updates without opening the popup. The check reuses the
+// shared 15-min cache (lib/update-check.js), so background polls and popup
+// opens share one API request. MV2 background pages are persistent in
+// Firefox, so a plain setInterval is reliable here.
+const UPDATE_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+function setUpdateBadge(updateAvailable) {
+  browser.browserAction.setBadgeText({ text: updateAvailable ? "NEW" : "" });
+  if (updateAvailable) {
+    browser.browserAction.setBadgeBackgroundColor({ color: "#0060df" });
+  }
+}
+
+async function refreshUpdateBadge() {
+  try {
+    const latestVersion = await getLatestVersion();
+    setUpdateBadge(latestVersion !== browser.runtime.getManifest().version);
+  } catch (_) {
+    // Offline or rate-limited — keep the current badge state rather than
+    // flickering it off; the next poll or popup open will correct it.
+  }
+}
+
+refreshUpdateBadge();
+setInterval(refreshUpdateBadge, UPDATE_POLL_INTERVAL_MS);
+
+// The popup's own check writes the shared cache; react to that write so the
+// badge updates the moment the popup learns of a new release (and clears
+// right after an update installs and versions match again).
+browser.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.updateCheck && changes.updateCheck.newValue) {
+    setUpdateBadge(
+      changes.updateCheck.newValue.latestVersion !== browser.runtime.getManifest().version
+    );
+  }
+});
+
 async function handleInjectionError(message) {
   const providerName = message.providerName || "the LLM";
 

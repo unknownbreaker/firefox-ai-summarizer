@@ -89,9 +89,10 @@ If any step fails, the prompt falls back down the chain (file → URL → pasted
 
 ## Staying Updated
 
-- The popup checks the [latest GitHub release](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest) each time it opens (cached 15 min).
+- A **"NEW" badge appears on the toolbar icon** when a newer release is available (checked every 6 hours in the background).
+- The popup also checks the [latest GitHub release](https://github.com/unknownbreaker/firefox-ai-summarizer/releases/latest) each time it opens (cached 15 min).
 - Newer version available → the **Install latest release** button activates; one click opens the new `.xpi`.
-- Already current → the button shows **Up to date** and stays disabled.
+- Already current → no badge, and the button shows **Up to date** and stays disabled.
 
 ## Development
 
