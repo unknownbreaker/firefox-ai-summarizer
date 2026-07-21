@@ -1,3 +1,7 @@
+## v0.6.1 (2026-07-21)
+### Bug Fixes
+- make the install button actually download and keep the badge in sync with the popup (f043939)
+
 ## v0.6.0 (2026-07-21)
 ### Features
 - show a NEW badge on the toolbar icon when an update is available (99c801e)
