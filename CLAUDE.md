@@ -77,7 +77,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | Change prompt behavior | `lib/prompt-builder.js` |
 | Fix article extraction | `content/article-extractor.js`, `lib/readability.js` |
 | Fix injection failures | `content/injector.js` |
-| Hide/show the provider's own nav rail | `content/nav-hider.js` (selectors live here, NOT in providers.js — see its File Map row) |
+| Hide/show the provider's own nav rail | `content/nav-hider.js` (selectors live here, NOT in providers.js — see its File Map row). Rail selectors verified live 2026-09-19 for ChatGPT + Gemini; Claude's are still inferred |
 | Fix sidebar open/close | `background.js` (handleSummarizeRequest) |
 | Change popup UI | `popup/popup.{html,js}` |
 | Change settings UI | `settings/settings.{html,js}` |
@@ -89,7 +89,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `manifest.json` | 94 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
 | `background.js` | 432 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching, update badge ("NEW" on the toolbar icon when a newer release exists; 6-hour poll + reacts to `updateCheck` cache writes via storage.onChanged) |
 | `content/injector.js` | 654 | Runs on LLM pages in sidebar (inert in regular tabs — no `_t` marker). Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
-| `content/nav-hider.js` | 168 | Hides the provider's own conversation rail so it doesn't eat the narrow sidebar. Runs at `document_start` (injector.js is `document_idle` — CSS applied that late would flash the rail, then yank it). Gated on the same `_t` marker, so regular tabs on LLM domains are untouched. CSS is keyed by **hostname**, not provider id: it must resolve synchronously before any storage read, and the page's host is ground truth. Hides Gemini's rail rather than removing it — `newChatSelector` lives inside |
+| `content/nav-hider.js` | 186 | Hides the provider's own conversation rail so it doesn't eat the narrow sidebar. Runs at `document_start` (injector.js is `document_idle` — CSS applied that late would flash the rail, then yank it). Gated on the same `_t` marker, so regular tabs on LLM domains are untouched. CSS is keyed by **hostname**, not provider id: it must resolve synchronously before any storage read, and the page's host is ground truth. Hides Gemini's rail rather than removing it — `newChatSelector` lives inside |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability (no length cap) |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
@@ -126,9 +126,11 @@ web-ext build                  # Build .xpi in web-ext-artifacts/
 ```
 
 Tests are manual HTML files opened in a browser (no CLI runner):
-- `test/prompt-builder.test.html` — **Test 8's first assertion currently FAILS** (pre-existing as of 2026-09-19): it asserts the article prompt contains "Summarize the attached article", but the wording changed to "The attached file contains the full text of an article…". Stale assertion, not a code bug. Baseline: 24 pass / 1 fail.
+- `test/prompt-builder.test.html` — 25 pass (Test 8's assertion was stale against the current article-prompt wording; fixed 2026-09-19)
 - `test/providers.test.html` — 12 pass
-- `test/nav-hider.test.html` — 11 pass. Includes the regression guard that Gemini's "New chat" button stays in the DOM and clickable while its rail is hidden
+- `test/nav-hider.test.html` — 11 pass. Includes the regression guard that Gemini's "New chat" control stays in the DOM and clickable while its rail is hidden
+
+When serving these locally, **cache-bust the URL** (`?v=2`) or the browser will happily re-run a stale copy and report the old result.
 
 They can be run headlessly by serving the repo (`python3 -m http.server 8765`) and driving the page with Playwright, reading `#output`.
 
@@ -141,6 +143,9 @@ Each provider has a primary `submitSelector` plus a `submitFallbacks` array. The
 - **Gemini**: input=`div.ql-editor[contenteditable='true']` (Quill editor), submit=`button[aria-label='Send message']`, fallbacks=[`button[aria-label*='Send']`, `button[mat-icon-button][aria-label*='Send']`], file=`input[type='file']`, newChat=`button[aria-label='New chat' i]`
 
 `newChatSelector` (provider field, default none): the injector clicks this **before** injecting to force a fresh conversation. Gemini needs it because `gemini.google.com/app` is an Angular SPA that **restores the last active conversation on load**, ignoring the `setPanel` cache-bust (unlike Claude's server-side `/new` route) — so without it the summary appends to whatever conversation Gemini restored. `startNewChat` (injector.js) waits for the button (`waitForClickableButton`, 5s), clicks it, and settles 500ms before the file-drop/fill flow runs against the fresh composer. The selector is scoped to `<button>` (not the `<a>` variants, which can trigger a full navigation and reload the injector) and uses the case-insensitive `i` flag (the button's label is "New Chat", the anchors' is "New chat"). No-op for providers without the field, and idempotent if already on a fresh chat. Could be surfaced as a `providerOverrides` key later (settings UI doesn't expose it yet).
+
+> ⚠️ **UNCONFIRMED but likely broken as of 2026-09-19.** A live DOM probe of `gemini.google.com/app` found **zero** matches for `button[aria-label='New chat' i]`. The only "New chat" controls present were two `<a aria-label="New chat">` elements — one inside `bard-sidenav`, one being the Gemini logo link. If that holds, `startNewChat` finds nothing, returns early on its "proceed anyway" path, and **every Gemini summary silently appends to the restored conversation** — precisely the failure this field exists to prevent, and it fails quietly.
+> **Caveat that keeps this unconfirmed:** the probe ran in a signed-OUT session (the sidenav read "Sign in to save activity"), and the signed-in UI may well render the `<button>` variant. **Verify signed in before changing anything.** Do not simply retarget the selector at the `<a>` — the `<button>` scoping is deliberate, because the anchors can trigger a full navigation that reloads the injector.
 
 `fileUploadMethod` (provider field, default input-population): set to `"drop"` to attach the article by simulating a drag-and-drop onto the composer instead of populating a file `<input>`. Gemini uses `"drop"` because its file `<input>` is gated behind the "Upload & tools" menu and is **never** in the DOM (so `querySelector` finds nothing — confirmed: 0 file inputs at rest *and* with the menu open). The drop path (`tryFileDrop` → `dispatchPageRealmDrop` in injector.js) dispatches `dragenter`/`dragover`/`drop` with a **page-realm** `DataTransfer` (see the Xray gotcha above — a sandbox-built one attaches nothing), then **verifies** the attachment by polling for the file name in the DOM — a class-agnostic check. If verification fails, it returns false and `doInject` falls through to the prompt fallback chain (avoids a "summarize the attached file" prompt with no file).
 

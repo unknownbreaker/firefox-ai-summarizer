@@ -26,7 +26,13 @@ const NAV_HIDER_STYLE_ID = "ai-summarizer-nav-hider";
 
 // ChatGPT serves the same UI from two hostnames.
 const NAV_HIDER_CHATGPT_CSS = `
-  /* ChatGPT: conversation history rail. */
+  /* ChatGPT: conversation rail. Verified against the live DOM 2026-09-19 —
+     it is an <aside aria-label="Sidebar"> wrapping a <nav> with the same
+     label. The id and "Chat history" label below matched nothing in that
+     check; they are kept as inert fallbacks in case the signed-in UI or a
+     future build uses them. */
+  aside[aria-label="Sidebar" i],
+  nav[aria-label="Sidebar" i],
   #stage-slideover-sidebar,
   nav[aria-label="Chat history" i] { display: none !important; }
 `;
@@ -43,7 +49,13 @@ const NAV_HIDER_CHATGPT_CSS = `
  */
 const NAV_HIDER_RULES = {
   "claude.ai": `
-    /* Claude: conversation rail and its pin/collapse affordance. */
+    /* Claude: conversation rail and its pin/collapse affordance.
+       NOT verified against the live DOM — claude.ai serves a Cloudflare
+       challenge to a CDP-controlled browser, so the check that corrected the
+       ChatGPT rules could not reach it. The aside/nav pair mirrors ChatGPT's
+       verified shape, which is the best available evidence. Confirm with the
+       console.debug line below before trusting these. */
+    aside[aria-label="Sidebar" i],
     nav[aria-label="Sidebar" i],
     [data-testid="menu-sidebar"],
     [data-testid="pin-sidebar-button"] { display: none !important; }
@@ -51,11 +63,17 @@ const NAV_HIDER_RULES = {
   "chatgpt.com": NAV_HIDER_CHATGPT_CSS,
   "chat.openai.com": NAV_HIDER_CHATGPT_CSS,
   "gemini.google.com": `
-    /* Gemini: the Angular sidenav. Hidden, NOT removed — the injector clicks
-       the "New chat" button that lives inside it (see startNewChat in
-       injector.js). display:none keeps the node in the DOM and .click() still
-       fires on it; removing it would silently break fresh-conversation
-       forcing. Covered by test/nav-hider.test.html. */
+    /* Gemini: the Angular sidenav. Verified against the live DOM 2026-09-19 —
+       <bard-sidenav role="navigation" aria-label="Side Navigation">, 288px at
+       the left edge. The [role="navigation"] fallback was checked for
+       over-reach: all four of its matches sit INSIDE bard-sidenav, so it
+       cannot hide anything outside the rail.
+
+       Hidden, NOT removed — the injector clicks the "New chat" control that
+       lives inside it (see startNewChat in injector.js). display:none keeps
+       the node in the DOM and .click() still fires on it; removing it would
+       silently break fresh-conversation forcing. Covered by
+       test/nav-hider.test.html. */
     bard-sidenav,
     bard-sidenav-container [role="navigation"] { display: none !important; }
   `
