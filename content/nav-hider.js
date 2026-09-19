@@ -1,0 +1,168 @@
+/**
+ * Nav-hider content script.
+ *
+ * The LLM providers ship a conversation rail down the left of their web UI.
+ * That rail is fine in a full browser tab but eats a large share of the narrow
+ * Firefox sidebar, so hide it *in the sidebar only* and give the width back to
+ * the conversation.
+ *
+ * Runs at document_start (injector.js runs at document_idle): CSS applied after
+ * first paint would show the rail and then yank it away, a visible flash on
+ * every summarize.
+ *
+ * Inert in regular browsing tabs. The content_scripts matches cover whole LLM
+ * domains, so this also loads when you browse claude.ai normally — it must not
+ * restyle those pages. The `_t` sidebar marker is the gate, same as injector.js
+ * (Critical Invariant 7 in CLAUDE.md).
+ *
+ * NOTE: every top-level name here is `navHider`-prefixed on purpose. Firefox
+ * runs all of an extension's content scripts for a document in ONE shared
+ * sandbox global, so a bare `isSidebarPanel` here would collide with the const
+ * of that name in injector.js and throw a redeclaration SyntaxError — breaking
+ * prompt injection, not just this file.
+ */
+
+const NAV_HIDER_STYLE_ID = "ai-summarizer-nav-hider";
+
+// ChatGPT serves the same UI from two hostnames.
+const NAV_HIDER_CHATGPT_CSS = `
+  /* ChatGPT: conversation history rail. */
+  #stage-slideover-sidebar,
+  nav[aria-label="Chat history" i] { display: none !important; }
+`;
+
+/**
+ * Per-host CSS. Keyed by hostname rather than by the active provider id: this
+ * script needs its answer synchronously at document_start, before any async
+ * storage read could tell it which provider is configured, and the host of the
+ * page it is running in is the ground truth anyway.
+ *
+ * Selectors lean on element names, ids, roles and ARIA labels rather than
+ * hashed utility classes, which churn on every provider reskin. Listing several
+ * candidates per host costs nothing — a selector that matches nothing is inert.
+ */
+const NAV_HIDER_RULES = {
+  "claude.ai": `
+    /* Claude: conversation rail and its pin/collapse affordance. */
+    nav[aria-label="Sidebar" i],
+    [data-testid="menu-sidebar"],
+    [data-testid="pin-sidebar-button"] { display: none !important; }
+  `,
+  "chatgpt.com": NAV_HIDER_CHATGPT_CSS,
+  "chat.openai.com": NAV_HIDER_CHATGPT_CSS,
+  "gemini.google.com": `
+    /* Gemini: the Angular sidenav. Hidden, NOT removed — the injector clicks
+       the "New chat" button that lives inside it (see startNewChat in
+       injector.js). display:none keeps the node in the DOM and .click() still
+       fires on it; removing it would silently break fresh-conversation
+       forcing. Covered by test/nav-hider.test.html. */
+    bard-sidenav,
+    bard-sidenav-container [role="navigation"] { display: none !important; }
+  `
+};
+
+/**
+ * Resolve the rule set for a hostname, or null if the host isn't one we style.
+ * Matches subdomains too, so a provider moving to app.<host> keeps working.
+ */
+function navHiderCssForHost(hostname) {
+  if (typeof hostname !== "string") return null;
+
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  if (NAV_HIDER_RULES[host]) return NAV_HIDER_RULES[host];
+
+  for (const knownHost of Object.keys(NAV_HIDER_RULES)) {
+    if (host.endsWith("." + knownHost)) return NAV_HIDER_RULES[knownHost];
+  }
+  return null;
+}
+
+/**
+ * Is this document the extension's sidebar panel?
+ *
+ * Unlike injector.js, which reads the navigation timing entry because it runs
+ * at document_idle (by which point an SPA router may have rewritten the URL via
+ * replaceState), this runs at document_start — before any page script has had a
+ * chance to route — so window.location is still the URL setPanel() asked for.
+ */
+function navHiderIsSidebarPanel() {
+  try {
+    return new URLSearchParams(window.location.search).has("_t");
+  } catch (_) {
+    return false;
+  }
+}
+
+function navHiderApply(css) {
+  if (document.getElementById(NAV_HIDER_STYLE_ID)) return;
+
+  const style = document.createElement("style");
+  style.id = NAV_HIDER_STYLE_ID;
+  style.textContent = css;
+  // <head> does not exist yet at document_start; documentElement always does.
+  document.documentElement.appendChild(style);
+}
+
+function navHiderRemove() {
+  const style = document.getElementById(NAV_HIDER_STYLE_ID);
+  if (style) style.remove();
+}
+
+/**
+ * Log which selectors actually matched, once the provider's UI has rendered.
+ *
+ * Selector rot is the failure mode for this feature, and it fails *silently* —
+ * the rail just stays visible. Firefox hides console.debug behind the Debug
+ * level, so this is quiet day to day but available when checking a provider
+ * reskin without rebuilding the extension.
+ */
+function navHiderLogMatches(css) {
+  const selectors = css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("}")
+    .map(block => block.split("{")[0])
+    .join(",")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const matches = selectors.map(selector => {
+    try {
+      return `${selector} → ${document.querySelectorAll(selector).length}`;
+    } catch (_) {
+      return `${selector} → invalid`;
+    }
+  });
+  console.debug("[AI Summarizer] nav-hider matches:", matches.join(" | "));
+}
+
+if (navHiderIsSidebarPanel()) {
+  const navHiderCss = navHiderCssForHost(window.location.hostname);
+
+  if (navHiderCss) {
+    // Apply first, ask later. Hiding is the default, so applying synchronously
+    // and undoing it for the minority who opted out keeps the common path
+    // flash-free — an async storage read before the first paint cannot be.
+    navHiderApply(navHiderCss);
+
+    browser.storage.sync.get(["hideProviderNav"]).then(stored => {
+      if (stored.hideProviderNav === false) navHiderRemove();
+    }).catch(() => {
+      // Storage unavailable — keep the default (hidden).
+    });
+
+    // Apply the toggle without needing a sidebar reload.
+    browser.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "sync" || !changes.hideProviderNav) return;
+      if (changes.hideProviderNav.newValue === false) {
+        navHiderRemove();
+      } else {
+        navHiderApply(navHiderCss);
+      }
+    });
+
+    window.addEventListener("load", () => {
+      setTimeout(() => navHiderLogMatches(navHiderCss), 1000);
+    });
+  }
+}
