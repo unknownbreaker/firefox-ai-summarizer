@@ -49,6 +49,18 @@
     {
       "matches": [
         "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://claude.ai/*",
+        "*://gemini.google.com/*"
+      ],
+      "js": [
+        "content/nav-hider.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://chat.openai.com/*",
         "*://chatgpt.com/*"
       ],
       "js": [

@@ -60,6 +60,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 - **`HTMLTextAreaElement.prototype.value` setter exists on INPUT elements too** — Check `element.tagName` and use the correct prototype.
 - **Never clear Claude's ProseMirror editor with `innerHTML = ""`** — ProseMirror keeps its own document model plus a DOM selection. Wiping innerHTML out-of-band destroys the selection, so `execCommand("insertText")` has no caret to insert at and intermittently returns `false`, leaving the editor empty — the prompt silently vanishes (especially after a file attach, when ProseMirror's focus/selection is already churning, which is why text-only Claude worked but page-upload didn't). In `setInputValue` (injector.js), select existing content so `insertText` *replaces* it, with a synthetic `paste` event (via `clipboardData`) as a verified fallback. ChatGPT uses the native textarea value setter so it's unaffected.
 - **Article extraction fallback chain** — File upload → URL-only prompt → paste text → clipboard. If Readability.js says the page isn't readable (`isProbablyReaderable()` returns false), skip extraction entirely and use URL-only. Extracted text is deliberately NOT length-capped (user decision, 2026-07-08 — a cap was added then removed): the full article always reaches the LLM. Multi-tab extraction runs in batches of 4 (`mapWithConcurrency` in background.js) because each extraction clones the tab's full DOM.
+- **All content scripts of this extension share ONE sandbox global per document** — `injector.js` and `nav-hider.js` both run on the LLM domains, so their top-level declarations land in the same scope. A duplicate top-level name is a redeclaration `SyntaxError` that breaks *both* scripts, and the symptom is prompt injection dying with no obvious connection to the file you just added. `nav-hider.js` prefixes every top-level name with `navHider` for this reason (it deliberately does NOT reuse `isSidebarPanel`, which injector.js already declares as a const).
 - **Synthetic file drops must be built in the PAGE realm, not the content-script sandbox** — Firefox content scripts run in an isolated sandbox behind Xray wrappers. A `File`/`DataTransfer` constructed in the sandbox is invisible when the page's drop handler reads `event.dataTransfer.files` — the drop fires but attaches *nothing*, with no error. (Symptom: works from the DevTools console, which runs in the page realm, but silently no-ops from the content script.) Asymmetry worth remembering: assigning to a real element's `.files` (as `tryFileUpload` does for ChatGPT/Claude) crosses the boundary fine; it's only *reading* files off a sandbox-built event that fails. Fix in `dispatchPageRealmDrop` (injector.js): build `File`/`DataTransfer`/`DragEvent` via `window.wrappedJSObject` (the page's real constructors) and `cloneInto` plain data into the page realm (`wrapReflectors: true` so the cloned event init can carry the native `DataTransfer`). This is how Gemini's `fileUploadMethod: "drop"` actually attaches.
 
 ## Design Decisions
@@ -76,6 +77,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | Change prompt behavior | `lib/prompt-builder.js` |
 | Fix article extraction | `content/article-extractor.js`, `lib/readability.js` |
 | Fix injection failures | `content/injector.js` |
+| Hide/show the provider's own nav rail | `content/nav-hider.js` (selectors live here, NOT in providers.js — see its File Map row) |
 | Fix sidebar open/close | `background.js` (handleSummarizeRequest) |
 | Change popup UI | `popup/popup.{html,js}` |
 | Change settings UI | `settings/settings.{html,js}` |
@@ -84,9 +86,10 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 
 | File | Lines | Role |
 |------|-------|------|
-| `manifest.json` | 82 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
+| `manifest.json` | 94 | Manifest V2. Declares background scripts, content scripts for LLM domains, sidebar, popup, options page |
 | `background.js` | 432 | Central orchestrator. Context menus, message handling, prompt delivery, provider switching, update badge ("NEW" on the toolbar icon when a newer release exists; 6-hour poll + reacts to `updateCheck` cache writes via storage.onChanged) |
 | `content/injector.js` | 654 | Runs on LLM pages in sidebar (inert in regular tabs — no `_t` marker). Receives prompts, attaches article (file input or page-realm drag-drop), fills input, clicks submit |
+| `content/nav-hider.js` | 168 | Hides the provider's own conversation rail so it doesn't eat the narrow sidebar. Runs at `document_start` (injector.js is `document_idle` — CSS applied that late would flash the rail, then yank it). Gated on the same `_t` marker, so regular tabs on LLM domains are untouched. CSS is keyed by **hostname**, not provider id: it must resolve synchronously before any storage read, and the page's host is ground truth. Hides Gemini's rail rather than removing it — `newChatSelector` lives inside |
 | `content/extractor.js` | 17 | Injected into active tab to get selected text via `window.getSelection()` |
 | `content/article-extractor.js` | 41 | One-shot script injected into active tab to extract article via Readability (no length cap) |
 | `lib/readability.js` | 2944 | Bundled Mozilla Readability.js v0.6.0 for article extraction |
@@ -94,7 +97,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `lib/update-check.js` | 65 | Shared GitHub latest-release check (`getLatestVersion()`, 15-min cache in `updateCheck`) + `syncUpdateBadge()` (toolbar "NEW" badge) + `RELEASES_PAGE_URL`. Loaded by both background and popup; the POPUP must call `syncUpdateBadge` after every check — a cache-fresh check writes nothing, so `storage.onChanged` alone would leave a stale badge |
 | `providers/providers.js` | 98 | Provider config (Gemini/Claude/ChatGPT/custom). Load/save from `storage.sync`, merge overrides |
 | `popup/popup.{html,js}` | 246 | Toolbar popup. Summarize buttons, provider/preset dropdowns, settings link, update button (checks GitHub latest release on every popup open via `lib/update-check.js`; disabled when installed version matches). The button opens the RELEASE PAGE — a user click on the .xpi there is the only supported install path. Dead ends (tried, both fail): tabs.create to the .xpi = silently blocked website-install attempt (blank page); `downloads` API = file lands on disk but the Downloads panel "open" goes to the OS, which has no .xpi handler |
-| `settings/settings.{html,js}` | 320 | Full options page. Provider config, preset editor, injection delay, auto-submit, char limit |
+| `settings/settings.{html,js}` | 340 | Full options page. Provider config, preset editor, injection delay, auto-submit, hide-provider-nav, char limit |
 | `sidebar/sidebar.{html,js}` | 40 | Fallback page shown when no provider configured. Normally overridden by `setPanel()` |
 | `release.sh` | 238 | Automated release: semver bump from conventional commits, changelog, build, GitHub release. Attaches the .xpi twice — versioned (`ai-summarizer-X.Y.Z.xpi`, archival) and stable-named (`ai-summarizer.xpi`, keeps the `/releases/latest/download/` permalink valid) |
 
@@ -109,6 +112,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | `defaultPresetId` | sync | Active preset ID (default: `"concise"`) |
 | `injectionDelay` | sync | ms before clicking submit (default: 500) |
 | `autoSubmit` | sync | boolean (default: true) |
+| `hideProviderNav` | sync | boolean (default: true) — hide the provider's own conversation rail in the sidebar (`content/nav-hider.js`). Read as `!== false` so an unset key means hidden; the script applies the CSS first and removes it only on an explicit `false`, which keeps the default path flash-free. Also watched via `storage.onChanged`, so toggling it takes effect without a sidebar reload |
 | `charLimit` | sync | Max chars for selection (default: 10000) |
 | `pendingPrompt` | local | `{ prompt, provider, articleFile?, urlFallback?, textFallback? }` — consumed by injector. Purged at background startup; both it and the in-memory `pendingPromptData` auto-expire 60s after being set if never consumed (`setPendingPromptData`), so a failed delivery doesn't pin a large article payload |
 | `updateCheck` | local | `{ latestVersion, checkedAt }` — 15-min cache of the GitHub latest-release check (`lib/update-check.js`), shared by the popup's install button and the background's toolbar badge. Writes double as the badge-refresh signal (background listens via storage.onChanged) |
@@ -122,8 +126,11 @@ web-ext build                  # Build .xpi in web-ext-artifacts/
 ```
 
 Tests are manual HTML files opened in a browser (no CLI runner):
-- `test/prompt-builder.test.html`
-- `test/providers.test.html`
+- `test/prompt-builder.test.html` — **Test 8's first assertion currently FAILS** (pre-existing as of 2026-09-19): it asserts the article prompt contains "Summarize the attached article", but the wording changed to "The attached file contains the full text of an article…". Stale assertion, not a code bug. Baseline: 24 pass / 1 fail.
+- `test/providers.test.html` — 12 pass
+- `test/nav-hider.test.html` — 11 pass. Includes the regression guard that Gemini's "New chat" button stays in the DOM and clickable while its rail is hidden
+
+They can be run headlessly by serving the repo (`python3 -m http.server 8765`) and driving the page with Playwright, reading `#output`.
 
 ## Provider Selectors (current as of v0.3.2)
 

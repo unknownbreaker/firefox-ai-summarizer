@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head><title>Nav Hider Test</title></head>
+<body>
+<pre id="output"></pre>
+
+<!-- Stand-in DOM for each provider's conversation rail. Each element matches at
+     least one selector from the corresponding rule set in nav-hider.js. -->
+<div id="fixtures">
+  <!-- Claude -->
+  <nav aria-label="Sidebar" id="claude-rail">conversation list</nav>
+  <!-- ChatGPT -->
+  <div id="stage-slideover-sidebar">conversation list</div>
+  <!-- Gemini: the "New chat" button the injector clicks lives INSIDE the rail -->
+  <bard-sidenav id="gemini-rail">
+    <button aria-label="New chat" id="gemini-new-chat">New chat</button>
+  </bard-sidenav>
+</div>
+
+<script src="../content/nav-hider.js"></script>
+<script>
+const out = document.getElementById("output");
+function log(msg) { out.textContent += msg + "\n"; }
+function check(label, passed) { log(`${label}: ${passed ? "PASS" : "FAIL"}`); }
+
+// nav-hider.js is gated on the `_t` sidebar marker, so loading it here applies
+// nothing on its own. Tests drive the pure lookup directly and apply the CSS by
+// hand, which is also how the script itself applies it in the sidebar.
+function applyCss(css) {
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.appendChild(style);
+  return style;
+}
+
+function isHidden(el) {
+  return getComputedStyle(el).display === "none";
+}
+
+// Test 1: every supported host resolves to a rule set
+const hosts = ["claude.ai", "chatgpt.com", "chat.openai.com", "gemini.google.com"];
+let allResolved = true;
+for (const host of hosts) {
+  const css = navHiderCssForHost(host);
+  if (!css || !css.includes("display: none")) allResolved = false;
+}
+check("Test 1 - All supported hosts resolve to hide CSS", allResolved);
+
+// Test 2: unknown hosts resolve to null (so the script stays inert there)
+check(
+  "Test 2 - Unknown host returns null",
+  navHiderCssForHost("example.com") === null
+);
+
+// Test 3: non-string input is handled without throwing
+let nonStringOk = true;
+try {
+  nonStringOk = navHiderCssForHost(undefined) === null && navHiderCssForHost(null) === null;
+} catch (_) {
+  nonStringOk = false;
+}
+check("Test 3 - Non-string host returns null", nonStringOk);
+
+// Test 4: subdomains and a www. prefix map to the same rules as the bare host
+check(
+  "Test 4 - Subdomain matches parent host",
+  navHiderCssForHost("app.claude.ai") === navHiderCssForHost("claude.ai") &&
+  navHiderCssForHost("www.chatgpt.com") === navHiderCssForHost("chatgpt.com")
+);
+
+// Test 5: host matching is case-insensitive (hostnames are, in practice)
+check(
+  "Test 5 - Host match is case-insensitive",
+  navHiderCssForHost("Claude.AI") === navHiderCssForHost("claude.ai")
+);
+
+// Test 6: ChatGPT's two hostnames share one rule set
+check(
+  "Test 6 - chatgpt.com and chat.openai.com share rules",
+  navHiderCssForHost("chatgpt.com") === navHiderCssForHost("chat.openai.com")
+);
+
+// Test 7-9: the CSS actually hides each provider's rail.
+applyCss(navHiderCssForHost("claude.ai"));
+applyCss(navHiderCssForHost("chatgpt.com"));
+applyCss(navHiderCssForHost("gemini.google.com"));
+
+check("Test 7 - Claude rail hidden", isHidden(document.getElementById("claude-rail")));
+check("Test 8 - ChatGPT rail hidden", isHidden(document.getElementById("stage-slideover-sidebar")));
+check("Test 9 - Gemini rail hidden", isHidden(document.getElementById("gemini-rail")));
+
+// Test 10: REGRESSION GUARD. Gemini's newChatSelector button lives inside the
+// rail we just hid. startNewChat() must still find and click it, so the button
+// has to stay in the DOM and stay clickable. waitForClickableButton (injector.js)
+// tests only disabled/aria-disabled, never visibility — this test locks in the
+// pairing so a future switch to removing the node (rather than hiding it) fails
+// loudly here instead of silently appending every summary to the restored chat.
+const newChatBtn = document.querySelector("button[aria-label='New chat' i]");
+let clicked = false;
+if (newChatBtn) {
+  newChatBtn.addEventListener("click", () => { clicked = true; });
+  newChatBtn.click();
+}
+check(
+  "Test 10 - Gemini 'New chat' button still present and clickable while hidden",
+  Boolean(newChatBtn) && clicked
+);
+
+// Test 11: the rule sets carry !important. The providers ship their own layout
+// CSS with high specificity; without !important the rail wins.
+check(
+  "Test 11 - Rules use !important",
+  hosts.every(h => navHiderCssForHost(h).includes("!important"))
+);
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ const newPresetName = document.getElementById("new-preset-name");
 const newPresetInstruction = document.getElementById("new-preset-instruction");
 const injectionDelay = document.getElementById("injection-delay");
 const autoSubmit = document.getElementById("auto-submit");
+const hideProviderNav = document.getElementById("hide-provider-nav");
 const charLimit = document.getElementById("char-limit");
 const saveStatus = document.getElementById("save-status");
 
@@ -29,6 +30,7 @@ async function loadSettings() {
     "defaultPresetId",
     "injectionDelay",
     "autoSubmit",
+    "hideProviderNav",
     "charLimit"
   ]);
 
@@ -58,6 +60,7 @@ async function loadSettings() {
   // General
   injectionDelay.value = stored.injectionDelay || 500;
   autoSubmit.checked = stored.autoSubmit !== false;
+  hideProviderNav.checked = stored.hideProviderNav !== false;
   charLimit.value = stored.charLimit || 10000;
 }
 
@@ -159,6 +162,7 @@ document.getElementById("save-settings").addEventListener("click", async () => {
     defaultPresetId: selectedDefaultPreset,
     injectionDelay: parseInt(injectionDelay.value, 10) || 500,
     autoSubmit: autoSubmit.checked,
+    hideProviderNav: hideProviderNav.checked,
     charLimit: parseInt(charLimit.value, 10) || 10000
   };
 
