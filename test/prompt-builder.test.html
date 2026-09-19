@@ -76,7 +76,7 @@ async function runTests() {
   const articlePrompt = buildArticlePrompt("Provide a brief 2-3 sentence summary.");
   log("\nTest 8 - Article prompt (for file upload):");
   log(articlePrompt);
-  log(articlePrompt.includes("Summarize the attached article") ? "PASS" : "FAIL");
+  log(articlePrompt.includes("The attached file contains the full text of an article") ? "PASS" : "FAIL");
   log(articlePrompt.includes("Provide a brief 2-3 sentence summary.") ? "PASS" : "FAIL");
 
   // Test 9: buildArticleFileContent - single article

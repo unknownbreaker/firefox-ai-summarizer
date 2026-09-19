@@ -7,12 +7,19 @@
 <!-- Stand-in DOM for each provider's conversation rail. Each element matches at
      least one selector from the corresponding rule set in nav-hider.js. -->
 <div id="fixtures">
-  <!-- Claude -->
-  <nav aria-label="Sidebar" id="claude-rail">conversation list</nav>
-  <!-- ChatGPT -->
-  <div id="stage-slideover-sidebar">conversation list</div>
-  <!-- Gemini: the "New chat" button the injector clicks lives INSIDE the rail -->
-  <bard-sidenav id="gemini-rail">
+  <!-- Claude. Shape mirrors ChatGPT's (unverified — claude.ai serves a
+       Cloudflare challenge to an automated browser). -->
+  <aside aria-label="Sidebar" id="claude-rail">conversation list</aside>
+
+  <!-- ChatGPT. Real markup, observed 2026-09-19: an <aside aria-label="Sidebar">
+       wrapping a <nav> with the same label. -->
+  <aside aria-label="Sidebar" id="chatgpt-rail">
+    <nav aria-label="Sidebar" id="chatgpt-rail-nav">conversation list</nav>
+  </aside>
+
+  <!-- Gemini. Real markup, observed 2026-09-19. The "New chat" control the
+       injector clicks lives INSIDE the rail. -->
+  <bard-sidenav role="navigation" aria-label="Side Navigation" id="gemini-rail">
     <button aria-label="New chat" id="gemini-new-chat">New chat</button>
   </bard-sidenav>
 </div>
@@ -86,7 +93,11 @@ applyCss(navHiderCssForHost("chatgpt.com"));
 applyCss(navHiderCssForHost("gemini.google.com"));
 
 check("Test 7 - Claude rail hidden", isHidden(document.getElementById("claude-rail")));
-check("Test 8 - ChatGPT rail hidden", isHidden(document.getElementById("stage-slideover-sidebar")));
+check(
+  "Test 8 - ChatGPT rail hidden (real aside+nav markup)",
+  isHidden(document.getElementById("chatgpt-rail")) &&
+  isHidden(document.getElementById("chatgpt-rail-nav"))
+);
 check("Test 9 - Gemini rail hidden", isHidden(document.getElementById("gemini-rail")));
 
 // Test 10: REGRESSION GUARD. Gemini's newChatSelector button lives inside the
