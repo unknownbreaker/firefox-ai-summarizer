@@ -49,16 +49,24 @@ const NAV_HIDER_CHATGPT_CSS = `
  */
 const NAV_HIDER_RULES = {
   "claude.ai": `
-    /* Claude: conversation rail and its pin/collapse affordance.
-       CONFIRMED in the live sidebar 2026-09-22 — the rail is a single
-       <aside aria-label="Sidebar">, mirroring ChatGPT's shape exactly. The
-       other three below matched ZERO elements there and are kept only as
-       inert fallbacks for other builds; the two data-testids in particular
-       were blind guesses that have never matched anything. */
+    /* Claude: conversation rail. CONFIRMED in the live sidebar 2026-09-22 —
+       a single <aside aria-label="Sidebar">. (Two data-testid guesses that
+       never matched anything were dropped; the nav variant is kept as a cheap
+       inert fallback, since ChatGPT labels its rail the same way.) */
     aside[aria-label="Sidebar" i],
-    nav[aria-label="Sidebar" i],
-    [data-testid="menu-sidebar"],
-    [data-testid="pin-sidebar-button"] { display: none !important; }
+    nav[aria-label="Sidebar" i] { display: none !important; }
+
+    /* Hiding the rail alone reclaims NOTHING on Claude, and this is the
+       non-obvious part: the rail is position:absolute, so it never occupied
+       layout space to begin with. The main column clears it with a
+       padding-left on .dframe-content-inner (measured 288px = 280 rail + 8
+       gap), and that padding is indifferent to whether the rail is visible.
+       Zero it or the conversation keeps a dead gutter down its whole left
+       side — the exact bug reported against v0.7.0.
+
+       Gemini and ChatGPT do NOT need this: their rails are in normal flow
+       (position relative/static), so display:none collapses them correctly. */
+    .dframe-content-inner { padding-left: 0 !important; }
   `,
   "chatgpt.com": NAV_HIDER_CHATGPT_CSS,
   "chat.openai.com": NAV_HIDER_CHATGPT_CSS,
@@ -154,52 +162,6 @@ function navHiderLogMatches(css) {
   console.debug("[AI Summarizer] nav-hider matches:", matches.join(" | "));
 }
 
-/**
- * TEMPORARY DIAGNOSTIC (2026-09-22).
- *
- * Hiding the rail works, but the conversation does not expand into the freed
- * space — something still reserves that column. This dumps the composer's
- * ancestor chain so the offending rule (a grid track, a left margin, a
- * max-width) can be named rather than guessed at. Runs in the real sidebar, so
- * no Browser Toolbox is needed: read it in the Browser Console (Cmd+Shift+J)
- * with "Show Content Messages" on and the Debug level enabled.
- *
- * Remove once the space-reclaiming rules land.
- */
-function navHiderLogLayout() {
-  const composer = document.querySelector(
-    "div.ProseMirror[contenteditable='true'], " +
-    "div.ql-editor[contenteditable='true'], " +
-    "#prompt-textarea"
-  );
-  if (!composer) {
-    console.debug("[AI Summarizer] nav-hider layout: composer not found");
-    return;
-  }
-
-  const chain = [{ viewport: window.innerWidth }];
-  let node = composer;
-  for (let i = 1; node && node !== document.documentElement && i <= 10; i++) {
-    const style = getComputedStyle(node);
-    const rect = node.getBoundingClientRect();
-    chain.push({
-      i,
-      tag: node.tagName.toLowerCase(),
-      cls: String(node.className || "").slice(0, 70),
-      display: style.display,
-      gridCols: style.gridTemplateColumns,
-      width: Math.round(rect.width),
-      left: Math.round(rect.left),
-      marginLeft: style.marginLeft,
-      paddingLeft: style.paddingLeft,
-      maxWidth: style.maxWidth,
-      position: style.position
-    });
-    node = node.parentElement;
-  }
-  console.debug("[AI Summarizer] nav-hider layout:", JSON.stringify(chain));
-}
-
 if (navHiderIsSidebarPanel()) {
   const navHiderCss = navHiderCssForHost(window.location.hostname);
 
@@ -226,10 +188,7 @@ if (navHiderIsSidebarPanel()) {
     });
 
     window.addEventListener("load", () => {
-      setTimeout(() => {
-        navHiderLogMatches(navHiderCss);
-        navHiderLogLayout();
-      }, 1000);
+      setTimeout(() => navHiderLogMatches(navHiderCss), 1000);
     });
   }
 }

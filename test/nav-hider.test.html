@@ -7,9 +7,11 @@
 <!-- Stand-in DOM for each provider's conversation rail. Each element matches at
      least one selector from the corresponding rule set in nav-hider.js. -->
 <div id="fixtures">
-  <!-- Claude. Shape mirrors ChatGPT's (unverified — claude.ai serves a
-       Cloudflare challenge to an automated browser). -->
+  <!-- Claude. Real markup, observed in the live sidebar 2026-09-22: the rail
+       is position:absolute (so hiding it frees no space), and the main column
+       clears it with padding-left on .dframe-content-inner. -->
   <aside aria-label="Sidebar" id="claude-rail">conversation list</aside>
+  <div class="dframe-content-inner" id="claude-content" style="padding-left: 288px">conversation</div>
 
   <!-- ChatGPT. Real markup, observed 2026-09-19: an <aside aria-label="Sidebar">
        wrapping a <nav> with the same label. -->
@@ -24,8 +26,17 @@
   </bard-sidenav>
 </div>
 
-<script src="../content/nav-hider.js"></script>
 <script>
+// Load the script under test with a cache-buster. A plain <script src> gets
+// served from cache even when the page URL is cache-busted, so the suite would
+// silently grade a STALE copy of nav-hider.js — which yields false FAILs and,
+// worse, false PASSes. This bit twice before being fixed properly.
+const navHiderScript = document.createElement("script");
+navHiderScript.src = "../content/nav-hider.js?cb=" + Date.now();
+navHiderScript.onload = runTests;
+document.head.appendChild(navHiderScript);
+
+function runTests() {
 const out = document.getElementById("output");
 function log(msg) { out.textContent += msg + "\n"; }
 function check(label, passed) { log(`${label}: ${passed ? "PASS" : "FAIL"}`); }
@@ -117,12 +128,24 @@ check(
   Boolean(newChatBtn) && clicked
 );
 
-// Test 11: the rule sets carry !important. The providers ship their own layout
+// Test 11: hiding Claude's rail must also RECLAIM its space. The rail is
+// position:absolute, so display:none frees nothing on its own — the gutter is
+// held open by padding-left on .dframe-content-inner. This is the v0.7.0 bug:
+// the rail vanished but the conversation stayed offset. The inline padding
+// here is deliberate — an !important rule must beat it, exactly as it must
+// beat Claude's own stylesheet.
+check(
+  "Test 11 - Claude's content padding is zeroed (space reclaimed)",
+  getComputedStyle(document.getElementById("claude-content")).paddingLeft === "0px"
+);
+
+// Test 12: the rule sets carry !important. The providers ship their own layout
 // CSS with high specificity; without !important the rail wins.
 check(
-  "Test 11 - Rules use !important",
+  "Test 12 - Rules use !important",
   hosts.every(h => navHiderCssForHost(h).includes("!important"))
 );
+}
 </script>
 </body>
 </html>
