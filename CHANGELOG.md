@@ -1,3 +1,7 @@
+## v0.7.2 (2026-09-22)
+### Bug Fixes
+- reclaim the space Claude's hidden rail leaves behind (91f6f02)
+
 ## v0.7.1 (2026-09-22)
 ### Other Changes
 - chore: add a temporary layout diagnostic to nav-hider (42dfedd)
