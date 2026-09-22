@@ -1,3 +1,11 @@
+## v0.7.0 (2026-09-22)
+### Features
+- hide the provider's own conversation rail in the sidebar (#3) (7a68fe6)
+
+### Bug Fixes
+- make startNewChat report a stale selector instead of failing silently (#5) (f7ffa08)
+- correct nav-hider selectors against the live provider DOM (#4) (215fe0d)
+
 ## v0.6.4 (2026-07-21)
 ### Other Changes
 - chore: dummy release to verify the release-page update flow (353bba6)
