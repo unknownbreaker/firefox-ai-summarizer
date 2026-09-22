@@ -1,3 +1,7 @@
+## v0.7.1 (2026-09-22)
+### Other Changes
+- chore: add a temporary layout diagnostic to nav-hider (42dfedd)
+
 ## v0.7.0 (2026-09-22)
 ### Features
 - hide the provider's own conversation rail in the sidebar (#3) (7a68fe6)
