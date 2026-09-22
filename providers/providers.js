@@ -20,6 +20,13 @@ const DEFAULT_PROVIDERS = {
     // which can trigger a full navigation and reload the injector. See
     // startNewChat() in injector.js.
     newChatSelector: "button[aria-label='New chat' i]",
+    // Fallback for the shape observed live on 2026-09-22, where NO <button>
+    // carried that label and the only "New chat" controls were anchors. Scoped
+    // to bard-sidenav on purpose: Gemini labels its LOGO link "New chat" too,
+    // and that one is an href="/" navigation that would reload the injector and
+    // lose the pending prompt. The sidenav anchor is href="/app" (Angular
+    // routing — confirmed it does NOT reload the document).
+    newChatFallbacks: ["bard-sidenav a[aria-label='New chat' i]"],
     // Gemini's file <input> is gated behind the "Upload & tools" menu and is
     // never present in the DOM, so the standard input-population upload can't
     // work. Instead attach the article by simulating a drag-and-drop onto the
