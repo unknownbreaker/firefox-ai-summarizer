@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head><title>startNewChat Test</title></head>
+<body>
+<pre id="output"></pre>
+<div id="fixtures"></div>
+
+<script src="../content/injector.js"></script>
+<script>
+const out = document.getElementById("output");
+const fixtures = document.getElementById("fixtures");
+function log(msg) { out.textContent += msg + "\n"; }
+function check(label, passed) { log(`${label}: ${passed ? "PASS" : "FAIL"}`); }
+
+// injector.js is gated on the `_t` sidebar marker, so loading it here registers
+// no listeners. startNewChat is exercised directly against fixture DOM.
+
+// Short timeouts keep the suite fast; production defaults are much longer.
+const FAST = { primary: 200, fallback: 100, verify: 200, settle: 50 };
+
+// Capture console output so the "selector is stale" signal can be asserted on.
+let warnings = [];
+const realWarn = console.warn;
+console.warn = (...args) => { warnings.push(args.join(" ")); };
+
+function setup(html) {
+  fixtures.innerHTML = "";
+  fixtures.insertAdjacentHTML("afterbegin", html);
+  warnings = [];
+}
+
+async function run() {
+  // Test 1: a provider with no newChatSelector is a no-op (Claude, ChatGPT).
+  setup("");
+  let threw = false;
+  try {
+    await startNewChat({}, FAST);
+  } catch (_) { threw = true; }
+  check("Test 1 - No newChatSelector is a quiet no-op", !threw && warnings.length === 0);
+
+  // Test 2: a clickable control is clicked.
+  setup('<button id="nc" aria-label="New chat">New chat</button>');
+  let clicked = false;
+  document.getElementById("nc").addEventListener("click", () => { clicked = true; });
+  await startNewChat({ newChatSelector: "button[aria-label='New chat' i]" }, FAST);
+  check("Test 2 - Clickable control is clicked", clicked);
+  check("Test 2b - No warning when the control was found", warnings.length === 0);
+
+  // Test 3: present but disabled means the chat is ALREADY fresh. Gemini
+  // disables its New chat control on an empty conversation (observed live
+  // 2026-09-22), so this is the normal idempotent path — it must stay quiet.
+  setup('<button id="nc" aria-label="New chat" aria-disabled="true">New chat</button>');
+  clicked = false;
+  document.getElementById("nc").addEventListener("click", () => { clicked = true; });
+  await startNewChat({ newChatSelector: "button[aria-label='New chat' i]" }, FAST);
+  check("Test 3 - Disabled control is not clicked (already fresh)", !clicked);
+  check("Test 3b - Already-fresh path does not warn", warnings.length === 0);
+
+  // Test 4: primary selector matches nothing, fallback picks it up. This is the
+  // live Gemini shape as of 2026-09-22: no <button>, only an <a> in the sidenav.
+  setup('<bard-sidenav><a id="nc" aria-label="New chat" href="/app">New chat</a></bard-sidenav>');
+  clicked = false;
+  document.getElementById("nc").addEventListener("click", (e) => { e.preventDefault(); clicked = true; });
+  await startNewChat({
+    newChatSelector: "button[aria-label='New chat' i]",
+    newChatFallbacks: ["bard-sidenav a[aria-label='New chat' i]"]
+  }, FAST);
+  check("Test 4 - Falls back to the sidenav anchor", clicked);
+  check("Test 4b - Fallback success does not warn", warnings.length === 0);
+
+  // Test 5: THE REGRESSION THIS FIX EXISTS FOR. When nothing matches at all,
+  // the selectors are stale and every summary will land in the restored
+  // conversation. That must be LOUD, not a silent early return.
+  setup("<div>no new chat control anywhere</div>");
+  await startNewChat({
+    newChatSelector: "button[aria-label='New chat' i]",
+    newChatFallbacks: ["bard-sidenav a[aria-label='New chat' i]"]
+  }, FAST);
+  check("Test 5 - Warns when NO selector matches", warnings.length === 1);
+  check(
+    "Test 5b - Warning names the provider field so it is actionable",
+    warnings.length === 1 && /newChatSelector/.test(warnings[0])
+  );
+
+  // Test 6: the logo anchor (href="/") must never be used — clicking it is a
+  // full navigation that reloads the injector and loses the pending prompt.
+  // Only the sidenav-scoped anchor is an eligible fallback.
+  setup('<a id="logo" aria-label="New chat" href="/">Gemini</a>');
+  let logoClicked = false;
+  document.getElementById("logo").addEventListener("click", (e) => { e.preventDefault(); logoClicked = true; });
+  await startNewChat({
+    newChatSelector: "button[aria-label='New chat' i]",
+    newChatFallbacks: ["bard-sidenav a[aria-label='New chat' i]"]
+  }, FAST);
+  check("Test 6 - Logo anchor is never clicked", !logoClicked);
+
+  console.warn = realWarn;
+  log("\nDone.");
+}
+run();
+</script>
+</body>
+</html>

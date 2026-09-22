@@ -371,22 +371,77 @@ function dispatchPageRealmDrop(target, init) {
  * fresh composer.
  *
  * No-op for providers without `newChatSelector` (e.g. Claude, whose /new URL
- * already yields a fresh chat). Safe to call even when already on a new chat —
- * the button is either absent/disabled (skipped) or clicking it is idempotent.
+ * already yields a fresh chat).
+ *
+ * Three outcomes, deliberately kept apart — the previous version collapsed them
+ * into one silent early return, which is why a stale selector could break every
+ * Gemini summary without leaving a trace:
+ *
+ *   1. control found and clickable  → click it, then VERIFY the chat went fresh
+ *   2. control found but disabled   → already on a fresh chat; quiet no-op
+ *   3. no selector matched anything → the selectors are STALE. Warn loudly:
+ *      every summary from here on appends to the restored conversation.
+ *
+ * `newChatFallbacks` mirrors `submitFallbacks`: alternates tried in order when
+ * the primary matches nothing, so a provider reskin degrades instead of
+ * breaking. A fallback must be scoped to the conversation rail — Gemini also
+ * labels its LOGO link "New chat", and that one is an href="/" navigation that
+ * would reload the injector and lose the pending prompt.
  */
-async function startNewChat(provider) {
+const NEW_CHAT_TIMEOUTS = { primary: 5000, fallback: 1000, verify: 2000, settle: 500 };
+
+async function startNewChat(provider, timeouts = {}) {
   if (!provider.newChatSelector) return;
 
-  const button = await waitForClickableButton(provider.newChatSelector, 5000);
-  if (!button) return; // already fresh, or button not present — proceed anyway
+  const { primary, fallback, verify, settle } = { ...NEW_CHAT_TIMEOUTS, ...timeouts };
+  const selectors = [provider.newChatSelector, ...(provider.newChatFallbacks || [])];
 
-  button.click();
+  for (let i = 0; i < selectors.length; i++) {
+    const selector = selectors[i];
+    // The first attempt absorbs Angular's cold-start boot, so it keeps the
+    // original 5s budget. By the time the fallbacks run the DOM is up, and a
+    // long wait per fallback would just stall every summarize.
+    const control = await waitForClickableButton(selector, i === 0 ? primary : fallback);
 
-  // Let the SPA tear down the restored conversation and present an empty
-  // composer before we attach the file / fill the input. The downstream
-  // waitForElement + tryFileDrop retry loop tolerate in-flight DOM, but this
-  // brief settle avoids racing the outgoing conversation's composer.
-  await sleep(500);
+    if (control) {
+      control.click();
+
+      // Let the SPA tear down the restored conversation and present an empty
+      // composer before we attach the file / fill the input. The downstream
+      // waitForElement + tryFileDrop retry loop tolerate in-flight DOM, but
+      // this brief settle avoids racing the outgoing conversation's composer.
+      await sleep(settle);
+
+      // Confirm rather than assume. Gemini disables its New chat control once
+      // the conversation is empty (verified against the live DOM 2026-09-22:
+      // aria-disabled flips "true" → "false" the moment a conversation
+      // exists), so the control going disabled/absent means the reset landed.
+      const wentFresh = await waitForCondition(() => {
+        const el = document.querySelector(selector);
+        return !el || el.disabled === true || el.getAttribute("aria-disabled") === "true";
+      }, verify);
+
+      if (!wentFresh) {
+        // Debug, not warn: a provider that doesn't use the disabled state to
+        // signal freshness would cry wolf here on every single summarize.
+        console.debug(
+          "[AI Summarizer] startNewChat: clicked", selector,
+          "but could not confirm the conversation reset."
+        );
+      }
+      return;
+    }
+
+    // Not clickable, but present → disabled → already on a fresh chat.
+    if (document.querySelector(selector)) return;
+  }
+
+  console.warn(
+    "[AI Summarizer] startNewChat: no element matched newChatSelector " +
+    `(${provider.newChatSelector}) or any newChatFallbacks. The provider's ` +
+    "markup has likely changed — summaries will append to whatever " +
+    "conversation was restored instead of starting a fresh one."
+  );
 }
 
 async function doInject(prompt, provider, articleFile = null, urlFallback = null, textFallback = null) {
