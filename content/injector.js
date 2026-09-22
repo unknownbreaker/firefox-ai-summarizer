@@ -412,23 +412,28 @@ async function startNewChat(provider, timeouts = {}) {
       // this brief settle avoids racing the outgoing conversation's composer.
       await sleep(settle);
 
-      // Confirm rather than assume. Gemini disables its New chat control once
-      // the conversation is empty (verified against the live DOM 2026-09-22:
-      // aria-disabled flips "true" → "false" the moment a conversation
-      // exists), so the control going disabled/absent means the reset landed.
-      const wentFresh = await waitForCondition(() => {
+      // Confirm rather than assume, but DO NOT await it. Gemini disables its
+      // New chat control once the conversation is empty (observed live
+      // 2026-09-22: aria-disabled flips "true" → "false" the moment a
+      // conversation exists) — however that was observed on the sidenav
+      // ANCHOR, and whether the signed-in <button> adopts the same state is
+      // unverified. Awaiting would therefore risk taxing every single
+      // summarize by the full `verify` budget on a provider that simply
+      // signals freshness some other way. Fire-and-forget keeps the
+      // diagnostic and costs nothing on the happy path.
+      waitForCondition(() => {
         const el = document.querySelector(selector);
         return !el || el.disabled === true || el.getAttribute("aria-disabled") === "true";
-      }, verify);
-
-      if (!wentFresh) {
+      }, verify).then((wentFresh) => {
+        if (wentFresh) return;
         // Debug, not warn: a provider that doesn't use the disabled state to
         // signal freshness would cry wolf here on every single summarize.
         console.debug(
           "[AI Summarizer] startNewChat: clicked", selector,
           "but could not confirm the conversation reset."
         );
-      }
+      });
+
       return;
     }
 

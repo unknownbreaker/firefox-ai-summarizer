@@ -94,6 +94,21 @@ async function run() {
   }, FAST);
   check("Test 6 - Logo anchor is never clicked", !logoClicked);
 
+  // Test 7: the post-click freshness check must NOT block the injection flow.
+  // The control here never becomes disabled, so an awaited verification would
+  // stall for the whole `verify` budget on every summarize. startNewChat must
+  // return after the settle instead, leaving the check to report in the
+  // background. Guards a latency regression that would be invisible in a
+  // pass/fail suite.
+  setup('<button id="nc" aria-label="New chat">New chat</button>');
+  const started = Date.now();
+  await startNewChat({ newChatSelector: "button[aria-label='New chat' i]" }, FAST);
+  const elapsed = Date.now() - started;
+  check(
+    `Test 7 - Verification does not block (${elapsed}ms, settle=${FAST.settle}, verify=${FAST.verify})`,
+    elapsed < FAST.settle + FAST.verify
+  );
+
   console.warn = realWarn;
   log("\nDone.");
 }
