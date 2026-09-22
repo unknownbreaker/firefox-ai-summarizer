@@ -77,7 +77,7 @@ The sidebar loads the LLM URL directly via `sidebarAction.setPanel()` — NOT in
 | Change prompt behavior | `lib/prompt-builder.js` |
 | Fix article extraction | `content/article-extractor.js`, `lib/readability.js` |
 | Fix injection failures | `content/injector.js` |
-| Hide/show the provider's own nav rail | `content/nav-hider.js` (selectors live here, NOT in providers.js — see its File Map row). Rail selectors verified live 2026-09-19 for ChatGPT + Gemini; Claude's are still inferred |
+| Hide/show the provider's own nav rail | `content/nav-hider.js` (selectors live here, NOT in providers.js — see its File Map row). Rail selectors verified live for all three (ChatGPT + Gemini 2026-09-19, Claude 2026-09-22). **Known gap:** hiding the rail does not yet reclaim its space — the conversation stays offset, so space-reclaiming rules are still needed |
 | Fix sidebar open/close | `background.js` (handleSummarizeRequest) |
 | Change popup UI | `popup/popup.{html,js}` |
 | Change settings UI | `settings/settings.{html,js}` |
